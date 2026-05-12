@@ -16,6 +16,7 @@ import getText from '@/js/vue-plugins/gettext-plugin';
 import helperWindow from '@/js/vue-plugins/helper-window';
 import imageViewer from '@/js/vue-plugins/image-viewer';
 import localStorage from '@/js/vue-plugins/local-storage';
+import offline from '@/js/vue-plugins/offline';
 import router from '@/js/vue-plugins/router';
 import screen from '@/js/vue-plugins/screen';
 import stripMarkdown from '@/js/vue-plugins/strip-markdown';
@@ -35,6 +36,7 @@ Vue.config.productionTip = false;
 Vue.config.silent = false;
 
 Vue.use(localStorage); // First, vm.$localStorage property
+Vue.use(offline); // vm.$offline: PWA offline storage of documents
 
 Vue.use(gdpr);
 Vue.use(VueAnalytics, {

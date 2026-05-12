@@ -30,6 +30,14 @@
     />
 
     <tool-box-button
+      v-if="canSaveOffline"
+      @click="toggleOffline"
+      :icon="offlineIcon"
+      :icon-class="offlineIconClass"
+      :label="offlineLabel"
+    />
+
+    <tool-box-button
       v-if="document.geometry && document.geometry.geom && documentType !== 'area'"
       :to="linkToClosestDocuments"
       :label="$gettext('See other documents nearby')"
@@ -359,6 +367,47 @@ export default {
       const coords = ol.coordinate.format(lonLat, '{y},{x}', 4);
       return `https://www.google.com/maps/dir/?api=1&destination=${coords}`;
     },
+
+    canSaveOffline() {
+      return ['route', 'waypoint', 'outing', 'article', 'book', 'xreport', 'image'].includes(this.documentType);
+    },
+
+    offlineDocId() {
+      return this.document.document_id;
+    },
+
+    offlineLang() {
+      return this.document.cooked.lang;
+    },
+
+    isSavedOffline() {
+      return this.$offline.isSaved(this.documentType, this.offlineDocId, this.offlineLang);
+    },
+
+    isDownloadingOffline() {
+      return this.$offline.isDownloading(this.documentType, this.offlineDocId, this.offlineLang);
+    },
+
+    offlineIcon() {
+      if (this.isDownloadingOffline) {
+        return 'circle-notch';
+      }
+      return this.isSavedOffline ? 'check-circle' : 'download';
+    },
+
+    offlineIconClass() {
+      if (this.isDownloadingOffline) {
+        return 'fa-spin';
+      }
+      return this.isSavedOffline ? 'has-text-success' : null;
+    },
+
+    offlineLabel() {
+      if (this.isDownloadingOffline) {
+        return this.$gettext('Saving for offline use…');
+      }
+      return this.isSavedOffline ? this.$gettext('Saved for offline use') : this.$gettext('Save for offline use');
+    },
   },
 
   created() {
@@ -390,6 +439,21 @@ export default {
       } else {
         c2c.moderator.blockAccount(this.document.document_id).then(() => {
           this.isAccountBlocked = true;
+        });
+      }
+    },
+
+    async toggleOffline() {
+      if (this.isDownloadingOffline) {
+        return;
+      }
+      if (this.isSavedOffline) {
+        await this.$offline.removeDocument(this.documentType, this.offlineDocId, this.offlineLang);
+      } else {
+        await this.$offline.saveDocument({
+          type: this.documentType,
+          id: this.offlineDocId,
+          lang: this.offlineLang,
         });
       }
     },
