@@ -30,6 +30,7 @@
             !$screen.isMobile && showElevationProfile && elevationProfileHasData ? 'fullscreen-map-container' : null
           "
           :show-pin-to-top-button="true"
+          :show-center-on-geolocation="true"
           @has-protection-area="$emit('has-protection-area')"
           @pin-to-top-clicked="togglePinToSide(true)"
         />

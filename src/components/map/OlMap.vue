@@ -76,11 +76,14 @@
     <div
       v-show="showCenterOnGeolocation"
       ref="centerOnGeolocation"
-      :title="$gettext('Recenter on your current position')"
+      :title="
+        geolocationActive ? $gettext('Hide your current position') : $gettext('Show your current position on the map')
+      "
       class="ol-control ol-control-center-on-geolocation"
+      :class="{ 'is-active': geolocationActive }"
     >
-      <button @click="activateCenterOnGeolocation">
-        <fa-icon icon="bullseye" />
+      <button @click="toggleGeolocationTracking">
+        <fa-icon :icon="geolocationActive ? 'location-crosshairs' : 'bullseye'" />
       </button>
     </div>
 
@@ -326,6 +329,13 @@ export default {
       isFullscreen: false,
 
       geolocation: null,
+      geolocationActive: false,
+      positionFeature: new ol.Feature(),
+      accuracyFeature: new ol.Feature(),
+      geolocationLayer: new ol.layer.Vector({
+        source: new ol.source.Vector(),
+        zIndex: 1000,
+      }),
 
       showLayerSwitcher: false,
 
@@ -461,6 +471,7 @@ export default {
         this.waypointsLayer, // keep waypoint above trace and documents
         this.elevationProfileLayer,
         this.editionLayer,
+        this.geolocationLayer, // user position dot stays on top
       ],
 
       view: new ol.View({
@@ -492,7 +503,26 @@ export default {
       projection: this.view.getProjection(),
     });
 
-    this.geolocation.on('change:position', this.setCenterOnGeoLocation);
+    this.positionFeature.setStyle(
+      new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 7,
+          fill: new ol.style.Fill({ color: '#1d72ff' }),
+          stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 }),
+        }),
+      })
+    );
+
+    this.accuracyFeature.setStyle(
+      new ol.style.Style({
+        fill: new ol.style.Fill({ color: 'rgba(29, 114, 255, 0.12)' }),
+        stroke: new ol.style.Stroke({ color: 'rgba(29, 114, 255, 0.45)', width: 1 }),
+      })
+    );
+
+    this.geolocation.on('change:position', this.handleGeolocationChange);
+    this.geolocation.on('change:accuracyGeometry', this.handleGeolocationAccuracyChange);
+    this.geolocation.on('error', this.handleGeolocationError);
 
     this.drawDocumentMarkers();
 
@@ -527,6 +557,9 @@ export default {
   beforeDestroy() {
     this.fullScreenControl.un('enterfullscreen', this.onFullscreenChange);
     this.fullScreenControl.un('leavefullscreen', this.onFullscreenChange);
+    if (this.geolocation) {
+      this.geolocation.setTracking(false);
+    }
   },
 
   methods: {
@@ -1176,14 +1209,71 @@ export default {
     },
 
     activateCenterOnGeolocation() {
+      // Backwards-compatible entry point still used by edition views: turn tracking on,
+      // recenter once, then stop.
+      this.recenterOnFirstFix = true;
       this.geolocation.setTracking(true);
     },
 
-    setCenterOnGeoLocation() {
-      const position = this.geolocation.getPosition();
-      this.view.setZoom(TRACKING_INITIAL_ZOOM);
-      this.view.setCenter(position);
+    toggleGeolocationTracking() {
+      if (this.geolocationActive) {
+        this.stopGeolocationTracking();
+      } else {
+        this.startGeolocationTracking();
+      }
+    },
+
+    startGeolocationTracking() {
+      this.geolocationActive = true;
+      this.recenterOnFirstFix = true;
+      const source = this.geolocationLayer.getSource();
+      source.clear();
+      source.addFeatures([this.accuracyFeature, this.positionFeature]);
+      this.geolocation.setTracking(true);
+    },
+
+    stopGeolocationTracking() {
+      this.geolocationActive = false;
       this.geolocation.setTracking(false);
+      this.geolocationLayer.getSource().clear();
+      this.positionFeature.setGeometry(null);
+      this.accuracyFeature.setGeometry(null);
+    },
+
+    handleGeolocationChange() {
+      const position = this.geolocation.getPosition();
+      if (!position) {
+        return;
+      }
+      this.positionFeature.setGeometry(new ol.geom.Point(position));
+      if (this.recenterOnFirstFix) {
+        this.recenterOnFirstFix = false;
+        this.view.setCenter(position);
+        if (this.view.getZoom() < TRACKING_INITIAL_ZOOM) {
+          this.view.setZoom(TRACKING_INITIAL_ZOOM);
+        }
+        // Maintain the legacy one-shot behaviour for edition views that opt in
+        // via activateCenterOnGeolocation rather than the new toggle.
+        if (!this.geolocationActive) {
+          this.geolocation.setTracking(false);
+        }
+      }
+    },
+
+    handleGeolocationAccuracyChange() {
+      const geometry = this.geolocation.getAccuracyGeometry();
+      this.accuracyFeature.setGeometry(geometry || null);
+    },
+
+    handleGeolocationError() {
+      // Permission denied or position unavailable: turn the marker off cleanly.
+      if (this.geolocationActive) {
+        this.stopGeolocationTracking();
+      }
+    },
+
+    setCenterOnGeoLocation() {
+      this.handleGeolocationChange();
     },
 
     searchRecenterOnPropositions(event) {

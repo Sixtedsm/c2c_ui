@@ -11,6 +11,9 @@
           &nbsp;{{ $offline.online ? $gettext('Online') : $gettext('Offline') }}
         </span>
         <span v-if="storageLabel" class="storage-info is-size-7 has-text-grey">{{ storageLabel }}</span>
+        <button class="button is-small is-primary" @click="openCreateFolderModal">
+          <fa-icon icon="plus" />&nbsp;{{ $gettext('New folder') }}
+        </button>
       </div>
     </header>
 
@@ -27,39 +30,90 @@
       </router-link>
     </div>
 
-    <section v-else class="offline-grid">
-      <article
-        v-for="entry in entries"
-        :key="entryKey(entry)"
-        class="offline-card"
-        :class="{ 'is-disabled': !$offline.online && !canOpenOffline(entry) }"
-      >
-        <router-link :to="linkTo(entry)" class="offline-card-body">
-          <div class="offline-card-icon">
-            <fa-icon :icon="iconFor(entry.type)" size="lg" />
+    <template v-else>
+      <section v-for="group in groups" :key="group.id || 'unfiled'" class="offline-section">
+        <header class="offline-section-header">
+          <button class="offline-section-toggle" @click="toggleCollapse(group.id || 'unfiled')">
+            <fa-icon :icon="isCollapsed(group.id || 'unfiled') ? 'chevron-right' : 'chevron-down'" fixed-width />
+            <fa-icon :icon="group.id ? 'folder' : 'list'" class="has-text-primary" />
+            <span class="offline-section-title">{{ group.name }}</span>
+            <span class="tag is-light">{{ group.entries.length }}</span>
+          </button>
+          <div v-if="group.id" class="offline-section-actions">
+            <button class="button is-text is-small" :title="$gettext('Rename folder')" @click="renameFolder(group)">
+              <fa-icon icon="edit" />
+            </button>
+            <button class="button is-text is-small" :title="$gettext('Delete folder')" @click="deleteFolder(group)">
+              <fa-icon icon="trash" />
+            </button>
           </div>
-          <div class="offline-card-content">
-            <h3 class="offline-card-title">{{ titleOf(entry) }}</h3>
-            <div class="offline-card-meta">
-              <span class="tag is-light">{{ $gettext(entry.type) }}</span>
-              <span class="tag is-light">{{ entry.lang.toUpperCase() }}</span>
-              <span class="has-text-grey is-size-7">{{ formatDate(entry.savedAt) }}</span>
+        </header>
+
+        <div v-if="!isCollapsed(group.id || 'unfiled')" class="offline-grid">
+          <article v-for="entry in group.entries" :key="entryKey(entry)" class="offline-card">
+            <router-link :to="linkTo(entry)" class="offline-card-body">
+              <div class="offline-card-icon">
+                <fa-icon :icon="iconFor(entry.type)" size="lg" />
+              </div>
+              <div class="offline-card-content">
+                <h3 class="offline-card-title">{{ titleOf(entry) }}</h3>
+                <div class="offline-card-meta">
+                  <span class="tag is-light">{{ $gettext(entry.type) }}</span>
+                  <span class="tag is-light">{{ entry.lang.toUpperCase() }}</span>
+                  <span class="has-text-grey is-size-7">{{ formatDate(entry.savedAt) }}</span>
+                </div>
+              </div>
+            </router-link>
+            <div class="offline-card-actions">
+              <select
+                class="offline-card-select"
+                :value="entry.folderId || ''"
+                :title="$gettext('Move to folder')"
+                @change="moveToFolder(entry, $event.target.value)"
+              >
+                <option value="">{{ $gettext('No folder') }}</option>
+                <option v-for="f in $offline.folders" :key="f.id" :value="f.id">{{ f.name }}</option>
+              </select>
+              <button
+                class="offline-card-remove button is-small is-text"
+                :title="$gettext('Remove from offline use')"
+                @click="remove(entry)"
+              >
+                <fa-icon icon="trash" />
+              </button>
             </div>
-          </div>
-        </router-link>
-        <button
-          class="offline-card-remove button is-small is-text"
-          :title="$gettext('Remove from offline use')"
-          @click="remove(entry)"
-        >
-          <fa-icon icon="trash" />
-        </button>
-      </article>
-    </section>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <modal-window ref="folderModal" small>
+      <template v-slot:header>
+        {{ folderModalMode === 'rename' ? $gettext('Rename folder') : $gettext('New folder') }}
+      </template>
+      <input
+        ref="folderInput"
+        class="input"
+        type="text"
+        :placeholder="$gettext('Folder name')"
+        v-model="folderInputValue"
+        @keyup.enter="confirmFolderModal"
+      />
+      <template v-slot:footer>
+        <div class="buttons is-right mt-4">
+          <button class="button" @click="$refs.folderModal.hide()">{{ $gettext('Cancel') }}</button>
+          <button class="button is-primary" :disabled="!folderInputValue.trim()" @click="confirmFolderModal">
+            {{ folderModalMode === 'rename' ? $gettext('Rename') : $gettext('Create') }}
+          </button>
+        </div>
+      </template>
+    </modal-window>
   </div>
 </template>
 
 <script>
+import ModalWindow from '@/components/generics/modals/ModalWindow';
+
 const TYPE_ICONS = {
   route: 'route',
   waypoint: 'map-marker-alt',
@@ -73,15 +127,34 @@ const TYPE_ICONS = {
 export default {
   name: 'OfflineView',
 
+  components: { ModalWindow },
+
   data() {
     return {
       storage: null,
+      collapsed: {},
+      folderModalMode: 'create',
+      folderInputValue: '',
+      folderBeingRenamed: null,
     };
   },
 
   computed: {
     entries() {
       return [...this.$offline.savedDocs].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+    },
+
+    groups() {
+      const result = [];
+      for (const folder of this.$offline.folders) {
+        const folderEntries = this.entries.filter((entry) => entry.folderId === folder.id);
+        result.push({ id: folder.id, name: folder.name, entries: folderEntries });
+      }
+      const unfiled = this.entries.filter((entry) => !entry.folderId);
+      if (unfiled.length || !result.length) {
+        result.push({ id: null, name: this.$gettext('Unfiled'), entries: unfiled });
+      }
+      return result;
     },
 
     storageLabel() {
@@ -114,10 +187,6 @@ export default {
         name: entry.type,
         params: { id: String(entry.id), lang: entry.lang },
       };
-    },
-
-    canOpenOffline() {
-      return true;
     },
 
     iconFor(type) {
@@ -166,6 +235,56 @@ export default {
       return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
     },
 
+    isCollapsed(key) {
+      return this.collapsed[key] === true;
+    },
+
+    toggleCollapse(key) {
+      this.$set(this.collapsed, key, !this.collapsed[key]);
+    },
+
+    openCreateFolderModal() {
+      this.folderModalMode = 'create';
+      this.folderInputValue = '';
+      this.folderBeingRenamed = null;
+      this.$refs.folderModal.show();
+      this.$nextTick(() => this.$refs.folderInput?.focus());
+    },
+
+    renameFolder(folder) {
+      this.folderModalMode = 'rename';
+      this.folderInputValue = folder.name;
+      this.folderBeingRenamed = folder;
+      this.$refs.folderModal.show();
+      this.$nextTick(() => this.$refs.folderInput?.focus());
+    },
+
+    async confirmFolderModal() {
+      const name = this.folderInputValue.trim();
+      if (!name) {
+        return;
+      }
+      if (this.folderModalMode === 'rename' && this.folderBeingRenamed) {
+        await this.$offline.renameFolder(this.folderBeingRenamed.id, name);
+      } else {
+        await this.$offline.createFolder(name);
+      }
+      this.$refs.folderModal.hide();
+    },
+
+    async deleteFolder(folder) {
+      const message = this.$gettext('Delete this folder? The topos inside will be moved to "Unfiled".');
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(message)) {
+        return;
+      }
+      await this.$offline.removeFolder(folder.id);
+    },
+
+    async moveToFolder(entry, folderId) {
+      await this.$offline.moveDocumentToFolder(entry.type, entry.id, entry.lang, folderId || null);
+    },
+
     async remove(entry) {
       const message = this.$gettext('Remove this topo from offline storage?');
       // eslint-disable-next-line no-alert
@@ -199,6 +318,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .empty-state {
@@ -206,6 +326,36 @@ export default {
   border: 2px dashed #e5e5e5;
   border-radius: 12px;
   background: #fafafa;
+}
+
+.offline-section {
+  margin-bottom: 1.75rem;
+}
+
+.offline-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.2rem;
+  border-bottom: 1px solid #ececec;
+  margin-bottom: 0.75rem;
+}
+
+.offline-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 1rem;
+  color: $text;
+  padding: 0;
+}
+
+.offline-section-title {
+  font-weight: 600;
 }
 
 .offline-grid {
@@ -226,10 +376,6 @@ export default {
   &:hover {
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
     transform: translateY(-1px);
-  }
-
-  &.is-disabled {
-    opacity: 0.55;
   }
 }
 
@@ -277,11 +423,26 @@ export default {
   gap: 0.4rem;
 }
 
+.offline-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  border-left: 1px solid #f0f0f0;
+  padding: 0.25rem;
+  gap: 0.2rem;
+}
+
+.offline-card-select {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: $white;
+  max-width: 7.5rem;
+}
+
 .offline-card-remove {
-  border: 0;
-  background: transparent;
-  padding: 0 0.85rem;
-  cursor: pointer;
   color: $grey;
 
   &:hover {
