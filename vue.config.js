@@ -42,7 +42,10 @@ const result = {
       name: 'Camptocamp.org',
       short_name: 'Camptocamp',
       description: 'Guide collaboratif des activités de montagne',
-      start_url: '/',
+      // Relative to the manifest URL so it resolves correctly whether the app
+      // is served at site root (production) or under a sub-path (GitHub Pages).
+      start_url: '.',
+      scope: '.',
       display: 'standalone',
       background_color: '#ffffff',
       theme_color: '#ff9933',
