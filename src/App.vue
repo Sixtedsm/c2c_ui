@@ -8,12 +8,16 @@
   >
     <side-menu class="side-menu no-print" :class="{ 'alternative-side-menu': alternativeSideMenu }" />
     <navigation class="navigation no-print" @toggle-side-menu="alternativeSideMenu = !alternativeSideMenu" />
-    <div v-if="!$offline.online" class="offline-banner no-print" role="status">
-      <fa-icon icon="plug" />
-      <span>&nbsp;{{ $gettext('You are offline. Only documents saved for offline use are available.') }}</span>
+    <div v-if="!$offline.online && !offlineBannerDismissed" class="offline-banner no-print" role="status">
       <router-link :to="{ name: 'offline' }" class="offline-banner-link">
-        {{ $gettext('Open my offline topos') }} →
+        <fa-icon icon="plug" />
+        <span>&nbsp;{{ $gettext('Offline — open my saved topos') }}</span>
       </router-link>
+      <button
+        class="delete is-small offline-banner-close"
+        :aria-label="$gettext('Dismiss')"
+        @click="offlineBannerDismissed = true"
+      ></button>
     </div>
     <dfm-ad-small v-if="!homePage() && ($screen.isMobile || $screen.isTablet || $screen.isDesktop)" class="ad" />
     <site-notice ref="siteNotice no-print" class="no-print site-notice" />
@@ -57,11 +61,19 @@ export default {
   data() {
     return {
       alternativeSideMenu: false,
+      offlineBannerDismissed: false,
     };
   },
 
   watch: {
     $route: 'hideSideMenuOnMobile',
+    '$offline.online'(isOnline) {
+      // Reset the dismissed state when the user goes back online so the banner
+      // shows again if they lose connection a second time.
+      if (isOnline) {
+        this.offlineBannerDismissed = false;
+      }
+    },
   },
 
   mounted() {
@@ -141,18 +153,28 @@ body,
   background: hsl(48, 100%, 67%);
   color: hsl(0, 0%, 21%);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  padding: 0.15rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  min-height: 1.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 
   .offline-banner-link {
     color: hsl(0, 0%, 21%);
-    text-decoration: underline;
-    font-weight: 600;
+    text-decoration: none;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .offline-banner-close {
+    flex-shrink: 0;
   }
 }
 
