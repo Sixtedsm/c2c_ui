@@ -1,9 +1,13 @@
 import { get } from 'idb-keyval';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
-import { NetworkFirst } from 'workbox-strategies';
+import { CacheFirst, NetworkFirst } from 'workbox-strategies';
 
-precacheAndRoute(self.__WB_MANIFEST || []);
+// Precache the app shell built by Vue CLI. We ignore all query parameters so a
+// homescreen launch with utm/fbclid/etc tracking still finds the cached entry.
+precacheAndRoute(self.__WB_MANIFEST || [], {
+  ignoreURLParametersMatching: [/.*/],
+});
 
 cleanupOutdatedCaches();
 
@@ -90,3 +94,19 @@ registerRoute(({ url, request }) => {
   }
   return parseDocRequest(url) !== null;
 }, apiDocStrategy);
+
+// Media (images): aggressive CacheFirst. Once a route is saved offline the
+// app explicitly fetches the embedded images, which fills this cache; on
+// subsequent loads (or fully offline) the SW serves them straight from disk.
+registerRoute(({ url, request }) => {
+  if (request.method !== 'GET') {
+    return false;
+  }
+  if (!/camptocamp\.org$/.test(url.hostname)) {
+    return false;
+  }
+  if (/^\/images\/proxy\/\d+/.test(url.pathname)) {
+    return true;
+  }
+  return /\.(jpe?g|png|gif|svg|webp|avif)$/i.test(url.pathname);
+}, new CacheFirst({ cacheName: 'c2c-images' }));

@@ -1,9 +1,31 @@
 import Vue from 'vue';
 
 import c2c from '@/js/apis/c2c';
+import { getImageUrl } from '@/js/image-urls';
 import * as store from '@/pwa/offline-store';
 
 const EMBEDDED_IMAGE_REGEX = /<img[^<>]+c2c:document-id="(\d+)"/gm;
+const IMAGE_SIZES_TO_PREFETCH = ['MI', 'SI'];
+
+async function prefetchImageVariants(imageDoc) {
+  if (!imageDoc) {
+    return;
+  }
+  for (const size of IMAGE_SIZES_TO_PREFETCH) {
+    const url = getImageUrl(imageDoc, size);
+    if (!url) {
+      continue;
+    }
+    try {
+      // The fetch is intercepted by the service worker's CacheFirst image
+      // route, which stores the response in the c2c-images cache. cache:
+      // 'reload' bypasses the HTTP cache so the SW always sees the request.
+      await fetch(url, { cache: 'reload', mode: 'cors' });
+    } catch {
+      // ignore individual image failures
+    }
+  }
+}
 
 function extractEmbeddedImageIds(cooked) {
   if (!cooked) {
@@ -97,6 +119,9 @@ export default function install(Vue) {
                 data: imgResponse.data,
                 folderId,
               });
+              // Also pull the actual image bytes so the SW image cache has them
+              // when the user opens the topo offline.
+              await prefetchImageVariants(imgResponse.data);
             } catch {
               // ignore individual image failures; the main document is still usable
             }
