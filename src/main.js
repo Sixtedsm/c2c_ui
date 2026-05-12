@@ -22,6 +22,8 @@ import stripMarkdown from '@/js/vue-plugins/strip-markdown';
 import upperCaseFirstLetter from '@/js/vue-plugins/uppercase-first-letter';
 import user from '@/js/vue-plugins/user';
 
+import './registerServiceWorker';
+
 // Require the main Sass manifest file
 require('./assets/sass/main.scss');
 
