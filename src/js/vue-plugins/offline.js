@@ -108,20 +108,40 @@ export default function install(Vue) {
           }
           const { data } = await service.getCooked(id, lang);
           await store.saveDocument({ type, id, lang, data, folderId });
-          const imageIds = extractEmbeddedImageIds(data?.cooked);
-          for (const imageId of imageIds) {
+          // Collect every image referenced by the document: those embedded in
+          // the cooked HTML, plus the ones in associations.images (the gallery
+          // below the topo). We deduplicate by document_id.
+          const embeddedIds = extractEmbeddedImageIds(data?.cooked).map(String);
+          const associatedImages = Array.isArray(data?.associations?.images) ? data.associations.images : [];
+          const associatedIds = associatedImages.map((img) => String(img.document_id));
+          const allImageIds = [...new Set([...embeddedIds, ...associatedIds])];
+
+          // We already have light metadata for associated images; index by id
+          // so we can prefetch their bytes without an extra round-trip.
+          const associatedById = new Map(associatedImages.map((img) => [String(img.document_id), img]));
+
+          for (const imageId of allImageIds) {
             try {
-              const imgResponse = await c2c.image.getCooked(imageId, lang);
-              await store.saveDocument({
-                type: 'image',
-                id: imageId,
-                lang,
-                data: imgResponse.data,
-                folderId,
-              });
-              // Also pull the actual image bytes so the SW image cache has them
-              // when the user opens the topo offline.
-              await prefetchImageVariants(imgResponse.data);
+              let imageData;
+              if (associatedById.has(imageId)) {
+                // Lightweight: use what is already in the association payload
+                // for prefetch purposes (filename + document_id are enough).
+                imageData = associatedById.get(imageId);
+              } else {
+                const imgResponse = await c2c.image.getCooked(imageId, lang);
+                imageData = imgResponse.data;
+                // Only persist a full IDB entry for embedded images: the
+                // app reads associations.images straight from the parent
+                // document we have already saved, no need to duplicate.
+                await store.saveDocument({
+                  type: 'image',
+                  id: imageId,
+                  lang,
+                  data: imageData,
+                  folderId,
+                });
+              }
+              await prefetchImageVariants(imageData);
             } catch {
               // ignore individual image failures; the main document is still usable
             }

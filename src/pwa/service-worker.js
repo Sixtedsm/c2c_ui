@@ -1,31 +1,17 @@
 import { get } from 'idb-keyval';
+import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
-import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { NavigationRoute, registerRoute, setCatchHandler } from 'workbox-routing';
 import { CacheFirst, NetworkFirst } from 'workbox-strategies';
 
-// Precache the app shell built by Vue CLI. We ignore all query parameters so a
-// homescreen launch with utm/fbclid/etc tracking still finds the cached entry.
 precacheAndRoute(self.__WB_MANIFEST || [], {
   ignoreURLParametersMatching: [/.*/],
 });
 
 cleanupOutdatedCaches();
 
-// SPA navigation fallback: when the user (re)opens the app while offline, or
-// navigates to a deep link without network, serve the precached index.html
-// instead of letting the browser show its native "no internet" page. Vue Router
-// then resolves the actual route on the client.
-const navigationHandler = createHandlerBoundToURL('/index.html');
-registerRoute(
-  new NavigationRoute(navigationHandler, {
-    denylist: [/^\/google[\w]*\.html$/, /^\/revive-adserver\.html$/],
-  })
-);
-
 self.addEventListener('install', () => {
-  // Take over from the previous service worker as soon as the new one is
-  // installed so updates land on the next page load instead of the next
-  // standalone-app launch.
+  // New SW takes effect immediately instead of after every tab is closed.
   self.skipWaiting();
 });
 
@@ -33,6 +19,18 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// SPA navigation: serve the precached app shell for any in-app navigation,
+// including (re)launches of the standalone app while offline.
+const navigationHandler = createHandlerBoundToURL('/index.html');
+registerRoute(
+  new NavigationRoute(navigationHandler, {
+    denylist: [/^\/google[\w]*\.html$/, /^\/revive-adserver\.html$/],
+  })
+);
+
+// C2C document requests: NetworkFirst with a 10s timeout, and an IndexedDB
+// fallback served by the $offline plugin's store. The Workbox cache itself
+// stays empty for documents — IndexedDB owns the persistence.
 const DOC_PATH_REGEX = /^\/(articles|books|images|outings|routes|waypoints|xreports)\/(\d+)$/;
 const DOC_SEARCH_REGEX = /^\?cook=([a-z]{2}(?:_[A-Z]{2})?)$/;
 const PLURAL_TO_SINGULAR = {
@@ -44,7 +42,6 @@ const PLURAL_TO_SINGULAR = {
   waypoints: 'waypoint',
   xreports: 'xreport',
 };
-
 const docKey = (type, id, lang) => `doc:${type}/${id}/${lang}`;
 
 function parseDocRequest(url) {
@@ -65,11 +62,7 @@ const apiDocStrategy = new NetworkFirst({
   networkTimeoutSeconds: 10,
   plugins: [
     {
-      // The application stores documents in IndexedDB via the $offline plugin.
-      // We do not duplicate them in the Workbox cache.
       cacheWillUpdate: async () => null,
-
-      // On cache lookup, serve from IndexedDB if the document has been saved.
       cachedResponseWillBeUsed: async ({ request }) => {
         const parsed = parseDocRequest(new URL(request.url));
         if (!parsed) {
@@ -95,18 +88,68 @@ registerRoute(({ url, request }) => {
   return parseDocRequest(url) !== null;
 }, apiDocStrategy);
 
-// Media (images): aggressive CacheFirst. Once a route is saved offline the
-// app explicitly fetches the embedded images, which fills this cache; on
-// subsequent loads (or fully offline) the SW serves them straight from disk.
-registerRoute(({ url, request }) => {
-  if (request.method !== 'GET') {
-    return false;
+// C2C images (cover photos + inline gallery). CacheFirst means once the app
+// has fetched an image (either because the user viewed the topo online, or
+// because $offline prefetched it after saving), subsequent loads — including
+// fully offline — are instant and free.
+registerRoute(
+  ({ url, request }) => {
+    if (request.method !== 'GET') {
+      return false;
+    }
+    if (!/camptocamp\.org$/.test(url.hostname)) {
+      return false;
+    }
+    if (/^\/images\/proxy\/\d+/.test(url.pathname)) {
+      return true;
+    }
+    return /\.(jpe?g|png|gif|svg|webp|avif)$/i.test(url.pathname);
+  },
+  new CacheFirst({
+    cacheName: 'c2c-images',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 500,
+        maxAgeSeconds: 90 * 24 * 60 * 60, // 90 days
+        purgeOnQuotaError: true,
+      }),
+    ],
+  })
+);
+
+// Map tiles. The most common pattern is .../{z}/{x}/{y}.{png|jpg}. We match it
+// across any host so OpenTopoMap, Swisstopo, IGN, ESRI, OSM, etc. all get
+// transparently cached when the user pans the map online — then are reusable
+// offline in the mountains.
+registerRoute(
+  ({ url, request }) => {
+    if (request.method !== 'GET') {
+      return false;
+    }
+    return /\/\d+\/\d+\/\d+\.(png|jpe?g|webp)(\?.*)?$/i.test(url.pathname + url.search);
+  },
+  new CacheFirst({
+    cacheName: 'c2c-map-tiles',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 2000,
+        maxAgeSeconds: 60 * 24 * 60 * 60, // 60 days
+        purgeOnQuotaError: true,
+      }),
+    ],
+  })
+);
+
+// Catch-all: if any request fails and nothing above served a response, try
+// hard to recover. Specifically, for navigation requests, fall back to the
+// precached app shell so a (re)launch in airplane mode does not show the
+// browser's native "no internet" error page.
+setCatchHandler(async ({ request }) => {
+  if (request.destination === 'document' || request.mode === 'navigate') {
+    const cached = await caches.match('/index.html', { ignoreSearch: true });
+    if (cached) {
+      return cached;
+    }
   }
-  if (!/camptocamp\.org$/.test(url.hostname)) {
-    return false;
-  }
-  if (/^\/images\/proxy\/\d+/.test(url.pathname)) {
-    return true;
-  }
-  return /\.(jpe?g|png|gif|svg|webp|avif)$/i.test(url.pathname);
-}, new CacheFirst({ cacheName: 'c2c-images' }));
+  return Response.error();
+});

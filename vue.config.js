@@ -62,6 +62,29 @@ const result = {
           purpose: 'maskable',
         },
       ],
+      shortcuts: [
+        {
+          name: 'My offline topos',
+          short_name: 'Offline',
+          description: 'Open the list of topos saved for offline use',
+          url: '/offline',
+          icons: [{ src: 'img/icons/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' }],
+        },
+        {
+          name: 'Topoguide',
+          short_name: 'Topoguide',
+          description: 'Browse routes and waypoints',
+          url: '/topoguide',
+          icons: [{ src: 'img/icons/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' }],
+        },
+        {
+          name: 'Outings',
+          short_name: 'Outings',
+          description: 'Recent trip reports',
+          url: '/outings',
+          icons: [{ src: 'img/icons/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' }],
+        },
+      ],
     },
   },
 
