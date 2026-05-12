@@ -1,11 +1,33 @@
 import { get } from 'idb-keyval';
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
+import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
+import { NavigationRoute, registerRoute } from 'workbox-routing';
 import { NetworkFirst } from 'workbox-strategies';
 
 precacheAndRoute(self.__WB_MANIFEST || []);
 
 cleanupOutdatedCaches();
+
+// SPA navigation fallback: when the user (re)opens the app while offline, or
+// navigates to a deep link without network, serve the precached index.html
+// instead of letting the browser show its native "no internet" page. Vue Router
+// then resolves the actual route on the client.
+const navigationHandler = createHandlerBoundToURL('/index.html');
+registerRoute(
+  new NavigationRoute(navigationHandler, {
+    denylist: [/^\/google[\w]*\.html$/, /^\/revive-adserver\.html$/],
+  })
+);
+
+self.addEventListener('install', () => {
+  // Take over from the previous service worker as soon as the new one is
+  // installed so updates land on the next page load instead of the next
+  // standalone-app launch.
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 const DOC_PATH_REGEX = /^\/(articles|books|images|outings|routes|waypoints|xreports)\/(\d+)$/;
 const DOC_SEARCH_REGEX = /^\?cook=([a-z]{2}(?:_[A-Z]{2})?)$/;
