@@ -116,6 +116,7 @@ export default {
 
   methods: {
     togglePinToSide(toggle) {
+      const previousPinnedMode = this.pinnedMode;
       const width = window.innerWidth;
       const height = window.innerHeight;
       const breakMobile = 769;
@@ -140,10 +141,20 @@ export default {
         document.body.style.paddingRight = null;
         document.body.style.paddingTop = null;
       }
+      const pinModeChanged = this.pinnedMode !== previousPinnedMode;
       setTimeout(() => {
-        // deferred so that map.getSize() gets updated
-        if (this.$refs.mapView) {
-          this.$refs.mapView.fitMapToDocuments();
+        const mapView = this.$refs.mapView;
+        if (!mapView) {
+          return;
+        }
+        // The OpenLayers canvas needs to know its new size after a layout change.
+        mapView.map?.updateSize();
+        // Only re-fit the extent when the user explicitly toggled the pin mode.
+        // On window-resize-driven calls we preserve the current zoom/center so
+        // touching the trace or scrolling the page doesn't constantly snap the
+        // map back to a fitted extent (forum-reported friction).
+        if (pinModeChanged) {
+          mapView.fitMapToDocuments();
         }
       });
     },

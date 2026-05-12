@@ -8,6 +8,13 @@
   >
     <side-menu class="side-menu no-print" :class="{ 'alternative-side-menu': alternativeSideMenu }" />
     <navigation class="navigation no-print" @toggle-side-menu="alternativeSideMenu = !alternativeSideMenu" />
+    <div v-if="!$offline.online" class="offline-banner no-print" role="status">
+      <fa-icon icon="plug" />
+      <span>&nbsp;{{ $gettext('You are offline. Only documents saved for offline use are available.') }}</span>
+      <router-link :to="{ name: 'offline' }" class="offline-banner-link">
+        {{ $gettext('Open my offline topos') }} →
+      </router-link>
+    </div>
     <dfm-ad-small v-if="!homePage() && ($screen.isMobile || $screen.isTablet || $screen.isDesktop)" class="ad" />
     <site-notice ref="siteNotice no-print" class="no-print site-notice" />
     <image-viewer ref="imageViewer" />
@@ -123,6 +130,30 @@ body,
   left: 0;
   right: 0;
   z-index: 25;
+}
+
+.offline-banner {
+  position: fixed;
+  top: $navbar-height;
+  left: 0;
+  right: 0;
+  z-index: 24;
+  background: hsl(48, 100%, 67%);
+  color: hsl(0, 0%, 21%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+
+  .offline-banner-link {
+    color: hsl(0, 0%, 21%);
+    text-decoration: underline;
+    font-weight: 600;
+  }
 }
 
 .side-menu {

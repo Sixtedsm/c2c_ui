@@ -88,7 +88,7 @@
     </template>
 
     <modal-window ref="folderModal" small>
-      <template v-slot:header>
+      <template #header>
         {{ folderModalMode === 'rename' ? $gettext('Rename folder') : $gettext('New folder') }}
       </template>
       <input
@@ -99,7 +99,7 @@
         v-model="folderInputValue"
         @keyup.enter="confirmFolderModal"
       />
-      <template v-slot:footer>
+      <template #footer>
         <div class="buttons is-right mt-4">
           <button class="button" @click="$refs.folderModal.hide()">{{ $gettext('Cancel') }}</button>
           <button class="button is-primary" :disabled="!folderInputValue.trim()" @click="confirmFolderModal">
@@ -274,7 +274,6 @@ export default {
 
     async deleteFolder(folder) {
       const message = this.$gettext('Delete this folder? The topos inside will be moved to "Unfiled".');
-      // eslint-disable-next-line no-alert
       if (!window.confirm(message)) {
         return;
       }
@@ -287,7 +286,6 @@ export default {
 
     async remove(entry) {
       const message = this.$gettext('Remove this topo from offline storage?');
-      // eslint-disable-next-line no-alert
       if (!window.confirm(message)) {
         return;
       }
