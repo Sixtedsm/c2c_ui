@@ -5,6 +5,7 @@ import { get, set } from 'idb-keyval';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute, setCatchHandler } from 'workbox-routing';
+import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 import { CacheFirst } from 'workbox-strategies';
 
 // ---------- Precache the app shell ----------
@@ -148,6 +149,10 @@ registerRoute(
   new CacheFirst({
     cacheName: 'c2c-images',
     plugins: [
+      // status 0 = opaque (no-cors) response, which is what we get for
+      // cross-origin images. Without explicitly allowing it Workbox would
+      // skip caching the prefetched images.
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 500,
         maxAgeSeconds: 90 * 24 * 60 * 60,
@@ -169,6 +174,7 @@ registerRoute(
   new CacheFirst({
     cacheName: 'c2c-map-tiles',
     plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
       new ExpirationPlugin({
         maxEntries: 2000,
         maxAgeSeconds: 60 * 24 * 60 * 60,

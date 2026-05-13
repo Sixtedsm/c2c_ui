@@ -35,7 +35,12 @@ function extractImageSrcs(cooked) {
 
 async function prefetchUrl(url) {
   try {
-    await fetch(url, { cache: 'reload', mode: 'cors' });
+    // no-cors: browser-issued <img> requests are also no-cors, so the cached
+    // opaque response will match cleanly when the image is rendered offline.
+    // Using cors here would fail for any C2C image host that does not send
+    // Access-Control-Allow-Origin (which is most of them) and would leave us
+    // with zero cached images.
+    await fetch(url, { cache: 'reload', mode: 'no-cors' });
   } catch {
     // ignore individual failures — the image just won't be available offline
   }
