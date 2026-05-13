@@ -214,6 +214,25 @@ export default {
         this.$imageViewer.clear();
         this.promise = c2c[this.documentType]
           .getCooked(this.documentId, this.expected_lang)
+          .catch(async (error) => {
+            // Defense in depth: if axios threw (network error or the SW could
+            // not be reached on this iOS launch), look up the document in the
+            // offline store directly. This is what the service worker is
+            // supposed to do transparently, but iOS Safari is unreliable about
+            // running the SW on standalone-PWA cold launches, so we mirror the
+            // check here.
+            if (this.$offline) {
+              const offlineData = await this.$offline.getDocument(
+                this.documentType,
+                this.documentId,
+                this.expected_lang
+              );
+              if (offlineData) {
+                return { data: offlineData };
+              }
+            }
+            throw error;
+          })
           .then(this.handleRedirection)
           .then(() => {
             this.$root.$emit('trigger-scroll');
