@@ -143,12 +143,18 @@ export default {
         };
 
         // add current user for outings
-        if (this.documentType === 'outing') {
+        if (this.documentType === 'outing' && this.$user.id) {
           this.promise.loading += 1;
-          c2c.profile.get(this.$user.id).then((response) => {
+          const profileFetch = c2c.profile.get(this.$user.id);
+          profileFetch.then((response) => {
             this.$documentUtils.addAssociation(document, response.data);
-            onload();
           });
+          // Decrement the loading counter no matter what — if the profile
+          // call fails (network glitch, stale id) we still want the form to
+          // render, just without auto-associating the user. Without this
+          // safety net, a single failed fetch would leave the page blank
+          // forever and the "+ outing" action would appear to do nothing.
+          profileFetch.promise_.then(onload, onload);
         }
 
         // Add associations presents in url query
@@ -161,10 +167,14 @@ export default {
 
             for (const documentId of documentIds) {
               this.promise.loading += 1;
-              c2c[documentType].get(documentId).then((response) => {
+              const fetcher = c2c[documentType].get(documentId);
+              fetcher.then((response) => {
                 this.$documentUtils.addAssociation(document, response.data);
-                onload();
               });
+              // Same safety as the profile fetch above: always call onload so
+              // a single failed association lookup does not lock the form in
+              // a never-rendering state.
+              fetcher.promise_.then(onload, onload);
             }
           }
         }

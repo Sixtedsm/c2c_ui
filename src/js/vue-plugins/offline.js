@@ -5,7 +5,41 @@ import { getImageUrl } from '@/js/image-urls';
 import * as store from '@/pwa/offline-store';
 
 const EMBEDDED_IMAGE_REGEX = /<img[^<>]+c2c:document-id="(\d+)"/gm;
+const IMG_SRC_REGEX = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gim;
 const IMAGE_SIZES_TO_PREFETCH = ['MI', 'SI'];
+
+function extractImageSrcs(cooked) {
+  const out = new Set();
+  if (!cooked) {
+    return out;
+  }
+  const visit = (value) => {
+    if (typeof value !== 'string' || value.indexOf('<img') === -1) {
+      return;
+    }
+    let match;
+    IMG_SRC_REGEX.lastIndex = 0;
+    while ((match = IMG_SRC_REGEX.exec(value)) !== null) {
+      out.add(match[1]);
+    }
+  };
+  if (typeof cooked === 'string') {
+    visit(cooked);
+  } else if (typeof cooked === 'object') {
+    for (const value of Object.values(cooked)) {
+      visit(value);
+    }
+  }
+  return out;
+}
+
+async function prefetchUrl(url) {
+  try {
+    await fetch(url, { cache: 'reload', mode: 'cors' });
+  } catch {
+    // ignore individual failures — the image just won't be available offline
+  }
+}
 
 async function prefetchImageVariants(imageDoc) {
   if (!imageDoc) {
@@ -13,17 +47,18 @@ async function prefetchImageVariants(imageDoc) {
   }
   for (const size of IMAGE_SIZES_TO_PREFETCH) {
     const url = getImageUrl(imageDoc, size);
-    if (!url) {
-      continue;
+    if (url) {
+      await prefetchUrl(url);
     }
-    try {
-      // The fetch is intercepted by the service worker's CacheFirst image
-      // route, which stores the response in the c2c-images cache. cache:
-      // 'reload' bypasses the HTTP cache so the SW always sees the request.
-      await fetch(url, { cache: 'reload', mode: 'cors' });
-    } catch {
-      // ignore individual image failures
-    }
+  }
+}
+
+async function prefetchSrcsFromCooked(cooked) {
+  for (const url of extractImageSrcs(cooked)) {
+    // Cooked HTML may contain absolute or protocol-relative URLs. We fetch
+    // them as-is so the service worker caches exactly the URL the browser
+    // will request when rendering the topo offline.
+    await prefetchUrl(url);
   }
 }
 
@@ -117,42 +152,49 @@ export default function install(Vue) {
           }
           const { data } = await service.getCooked(id, lang);
           await store.saveDocument({ type, id, lang, data, folderId });
-          // Collect every image referenced by the document: those embedded in
-          // the cooked HTML, plus the ones in associations.images (the gallery
-          // below the topo). We deduplicate by document_id.
-          const embeddedIds = extractEmbeddedImageIds(data?.cooked).map(String);
+          // Strategy: cache the EXACT URLs the browser will request when
+          // rendering the topo offline.
+          //
+          // 1) Pull every src= URL out of the cooked HTML and fetch them as-is.
+          //    Whatever pattern the server-side cooker emits (proxy URL, media
+          //    direct, etc.) is what the browser will ask for later, so this
+          //    is the most reliable way to populate the SW image cache.
+          await prefetchSrcsFromCooked(data?.cooked);
+
+          // 2) Gallery images (associations.images): prefetch the size
+          //    variants the gallery template usually requests (MI for the
+          //    grid, SI for the thumbnail strip). These go through getImageUrl
+          //    which constructs the same URL the gallery will build.
           const associatedImages = Array.isArray(data?.associations?.images) ? data.associations.images : [];
-          const associatedIds = associatedImages.map((img) => String(img.document_id));
-          const allImageIds = [...new Set([...embeddedIds, ...associatedIds])];
-
-          // We already have light metadata for associated images; index by id
-          // so we can prefetch their bytes without an extra round-trip.
-          const associatedById = new Map(associatedImages.map((img) => [String(img.document_id), img]));
-
-          for (const imageId of allImageIds) {
+          for (const image of associatedImages) {
             try {
-              let imageData;
-              if (associatedById.has(imageId)) {
-                // Lightweight: use what is already in the association payload
-                // for prefetch purposes (filename + document_id are enough).
-                imageData = associatedById.get(imageId);
-              } else {
-                const imgResponse = await c2c.image.getCooked(imageId, lang);
-                imageData = imgResponse.data;
-                // Only persist a full IDB entry for embedded images: the
-                // app reads associations.images straight from the parent
-                // document we have already saved, no need to duplicate.
-                await store.saveDocument({
-                  type: 'image',
-                  id: imageId,
-                  lang,
-                  data: imageData,
-                  folderId,
-                });
-              }
-              await prefetchImageVariants(imageData);
+              await prefetchImageVariants(image);
             } catch {
-              // ignore individual image failures; the main document is still usable
+              /* ignore */
+            }
+          }
+
+          // 3) Also persist the lightweight image metadata for images that are
+          //    embedded by id (so a later code path that calls c2c.image.get…
+          //    on them still resolves offline).
+          const embeddedIds = extractEmbeddedImageIds(data?.cooked).map(String);
+          const associatedIds = new Set(associatedImages.map((img) => String(img.document_id)));
+          for (const imageId of embeddedIds) {
+            if (associatedIds.has(imageId)) {
+              continue;
+            }
+            try {
+              const imgResponse = await c2c.image.getCooked(imageId, lang);
+              await store.saveDocument({
+                type: 'image',
+                id: imageId,
+                lang,
+                data: imgResponse.data,
+                folderId,
+              });
+              await prefetchImageVariants(imgResponse.data);
+            } catch {
+              /* ignore */
             }
           }
           await this.refresh();
