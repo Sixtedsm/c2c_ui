@@ -256,6 +256,37 @@ export default {
         return;
       }
 
+      // Offline create-outing path: if the user is creating a new outing while
+      // disconnected, queue it locally; the $offline plugin will retry the POST
+      // automatically when the device comes back online. The behaviour is
+      // limited to outings on purpose (other doc types are wiki-style edits
+      // that we do not want to silently defer).
+      if (this.mode === 'add' && this.documentType === 'outing' && this.$offline && !this.$offline.online) {
+        this.saving = true;
+        this.$offline
+          .queueOuting(this.document)
+          .then(() => {
+            this.modified = false;
+            toast({
+              message: this.$gettext('Outing saved locally — it will be published when you are back online.'),
+              type: 'is-success',
+              position: 'center',
+              duration: 5000,
+            });
+            this.$router.push({ name: 'offline' });
+          })
+          .catch(() => {
+            this.saving = false;
+            toast({
+              message: this.$gettext('Could not save your outing locally. Please try again.'),
+              type: 'is-danger',
+              position: 'center',
+            });
+          });
+        this.afterSave();
+        return;
+      }
+
       let promise;
 
       this.saving = true;
@@ -276,8 +307,37 @@ export default {
 
       promise.catch((error) => {
         this.saving = false;
-        const data = error.response.data;
-        this.dispatchErrors(data.errors);
+        // Network error fallback: if we lost connection mid-save when creating
+        // an outing, queue it instead of dropping the user's work on the floor.
+        if (
+          this.mode === 'add' &&
+          this.documentType === 'outing' &&
+          this.$offline &&
+          !error?.response &&
+          !navigator.onLine
+        ) {
+          this.$offline.queueOuting(this.document).then(() => {
+            this.modified = false;
+            toast({
+              message: this.$gettext('Network lost — your outing was saved locally and will sync later.'),
+              type: 'is-warning',
+              position: 'center',
+              duration: 5000,
+            });
+            this.$router.push({ name: 'offline' });
+          });
+          return;
+        }
+        const data = error?.response?.data;
+        if (data?.errors) {
+          this.dispatchErrors(data.errors);
+        } else {
+          toast({
+            message: this.$gettext('An error occurred while saving. Please try again.'),
+            type: 'is-danger',
+            position: 'center',
+          });
+        }
       });
     },
 

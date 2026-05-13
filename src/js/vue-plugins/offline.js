@@ -61,7 +61,9 @@ export default function install(Vue) {
         online: navigator.onLine,
         savedDocs: [],
         folders: [],
+        pendingOutings: [],
         downloading: new Set(),
+        syncing: false,
       };
     },
 
@@ -69,11 +71,17 @@ export default function install(Vue) {
       window.addEventListener('online', this.handleOnline);
       window.addEventListener('offline', this.handleOffline);
       await this.refresh();
+      if (this.online && this.pendingOutings.length) {
+        this.syncPendingOutings();
+      }
     },
 
     methods: {
       handleOnline() {
         this.online = true;
+        if (this.pendingOutings.length) {
+          this.syncPendingOutings();
+        }
       },
 
       handleOffline() {
@@ -83,6 +91,7 @@ export default function install(Vue) {
       async refresh() {
         this.savedDocs = await store.listDocuments();
         this.folders = await store.listFolders();
+        this.pendingOutings = await store.listPendingOutings();
       },
 
       isSaved(type, id, lang) {
@@ -187,6 +196,51 @@ export default function install(Vue) {
 
       async getStorageUsage() {
         return store.estimateUsage();
+      },
+
+      async queueOuting(document) {
+        const entry = await store.enqueuePendingOuting({
+          payload: document,
+          title: document?.locales?.[0]?.title || this.$gettext?.('Untitled') || 'Untitled',
+        });
+        this.pendingOutings = await store.listPendingOutings();
+        return entry;
+      },
+
+      async syncPendingOutings() {
+        if (this.syncing || !this.online) {
+          return;
+        }
+        const queue = await store.listPendingOutings();
+        if (!queue.length) {
+          return;
+        }
+        this.syncing = true;
+        const remaining = [];
+        for (const item of queue) {
+          try {
+            const response = await c2c.outing.create(item.payload);
+            // success: drop from queue
+            // optionally we could notify the UI here
+            if (!response?.data?.document_id) {
+              remaining.push({ ...item, attempts: item.attempts + 1, lastError: 'no-id' });
+            }
+          } catch (error) {
+            remaining.push({
+              ...item,
+              attempts: item.attempts + 1,
+              lastError: error?.response?.status ?? 'network',
+            });
+          }
+        }
+        await store.replacePendingOutings(remaining);
+        this.pendingOutings = remaining;
+        this.syncing = false;
+      },
+
+      async removePendingOuting(id) {
+        await store.removePendingOuting(id);
+        this.pendingOutings = await store.listPendingOutings();
       },
     },
   });

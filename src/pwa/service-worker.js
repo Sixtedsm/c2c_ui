@@ -1,8 +1,13 @@
-import { get } from 'idb-keyval';
+import { get, set } from 'idb-keyval';
+/* The SW reads/writes only the per-document IDB entries; the pending-outings
+ * queue is owned by the in-app $offline plugin so that the UI can stay in
+ * sync. Keeping the two responsibilities separate prevents accidental races. */
 import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute, setCatchHandler } from 'workbox-routing';
-import { CacheFirst, NetworkFirst } from 'workbox-strategies';
+import { CacheFirst } from 'workbox-strategies';
+
+// ---------- Precache the app shell ----------
 
 precacheAndRoute(self.__WB_MANIFEST || [], {
   ignoreURLParametersMatching: [/.*/],
@@ -10,8 +15,9 @@ precacheAndRoute(self.__WB_MANIFEST || [], {
 
 cleanupOutdatedCaches();
 
+// New SW activates immediately and takes over open clients so updates land on
+// the next page load instead of waiting for every standalone tab to close.
 self.addEventListener('install', () => {
-  // New SW takes effect immediately instead of after every tab is closed.
   self.skipWaiting();
 });
 
@@ -19,8 +25,8 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// SPA navigation: serve the precached app shell for any in-app navigation,
-// including (re)launches of the standalone app while offline.
+// ---------- SPA navigation fallback ----------
+
 const navigationHandler = createHandlerBoundToURL('/index.html');
 registerRoute(
   new NavigationRoute(navigationHandler, {
@@ -28,9 +34,8 @@ registerRoute(
   })
 );
 
-// C2C document requests: NetworkFirst with a 10s timeout, and an IndexedDB
-// fallback served by the $offline plugin's store. The Workbox cache itself
-// stays empty for documents — IndexedDB owns the persistence.
+// ---------- C2C API documents: IDB-first with background refresh ----------
+
 const DOC_PATH_REGEX = /^\/(articles|books|images|outings|routes|waypoints|xreports)\/(\d+)$/;
 const DOC_SEARCH_REGEX = /^\?cook=([a-z]{2}(?:_[A-Z]{2})?)$/;
 const PLURAL_TO_SINGULAR = {
@@ -57,41 +62,76 @@ function parseDocRequest(url) {
   return { type, id: pathMatch[2], lang: searchMatch[1] };
 }
 
-const apiDocStrategy = new NetworkFirst({
-  cacheName: 'c2c-api-docs',
-  networkTimeoutSeconds: 10,
-  plugins: [
-    {
-      cacheWillUpdate: async () => null,
-      cachedResponseWillBeUsed: async ({ request }) => {
-        const parsed = parseDocRequest(new URL(request.url));
-        if (!parsed) {
-          return null;
-        }
-        const entry = await get(docKey(parsed.type, parsed.id, parsed.lang));
-        if (!entry?.data) {
-          return null;
-        }
-        return new Response(JSON.stringify(entry.data), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      },
+function buildDocResponse(data) {
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-C2C-Source': 'offline-cache',
     },
-  ],
-});
+  });
+}
 
-registerRoute(({ url, request }) => {
-  if (request.method !== 'GET') {
-    return false;
+async function refreshDocFromNetwork(request, parsed) {
+  try {
+    const response = await fetch(request);
+    if (!response.ok) {
+      return;
+    }
+    const data = await response.clone().json();
+    const previous = (await get(docKey(parsed.type, parsed.id, parsed.lang))) ?? {};
+    await set(docKey(parsed.type, parsed.id, parsed.lang), {
+      ...previous,
+      type: parsed.type,
+      id: parsed.id,
+      lang: parsed.lang,
+      data,
+      savedAt: previous.savedAt ?? Date.now(),
+      refreshedAt: Date.now(),
+    });
+  } catch {
+    // Silent: a missed refresh is fine, the cached version stays valid.
   }
-  return parseDocRequest(url) !== null;
-}, apiDocStrategy);
+}
 
-// C2C images (cover photos + inline gallery). CacheFirst means once the app
-// has fetched an image (either because the user viewed the topo online, or
-// because $offline prefetched it after saving), subsequent loads — including
-// fully offline — are instant and free.
+// Strategy: if the doc is in IDB → return it immediately (instant offline) and
+// trigger a non-blocking network refresh. If not in IDB → go to network with a
+// timeout; on network failure, return a clear 503 instead of letting the app's
+// axios call fall through to a generic "Network error".
+async function handleDocRequest({ request }) {
+  const url = new URL(request.url);
+  const parsed = parseDocRequest(url);
+
+  if (parsed) {
+    const entry = await get(docKey(parsed.type, parsed.id, parsed.lang));
+    if (entry?.data) {
+      refreshDocFromNetwork(request, parsed);
+      return buildDocResponse(entry.data);
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(request, { signal: controller.signal });
+    return response;
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: 'offline',
+        message: 'Document is not saved for offline use and the network is unreachable.',
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+registerRoute(({ url, request }) => request.method === 'GET' && parseDocRequest(url) !== null, handleDocRequest);
+
+// ---------- C2C images (cover + gallery) ----------
+
 registerRoute(
   ({ url, request }) => {
     if (request.method !== 'GET') {
@@ -110,17 +150,15 @@ registerRoute(
     plugins: [
       new ExpirationPlugin({
         maxEntries: 500,
-        maxAgeSeconds: 90 * 24 * 60 * 60, // 90 days
+        maxAgeSeconds: 90 * 24 * 60 * 60,
         purgeOnQuotaError: true,
       }),
     ],
   })
 );
 
-// Map tiles. The most common pattern is .../{z}/{x}/{y}.{png|jpg}. We match it
-// across any host so OpenTopoMap, Swisstopo, IGN, ESRI, OSM, etc. all get
-// transparently cached when the user pans the map online — then are reusable
-// offline in the mountains.
+// ---------- Map tiles from any /{z}/{x}/{y}.* server ----------
+
 registerRoute(
   ({ url, request }) => {
     if (request.method !== 'GET') {
@@ -133,17 +171,15 @@ registerRoute(
     plugins: [
       new ExpirationPlugin({
         maxEntries: 2000,
-        maxAgeSeconds: 60 * 24 * 60 * 60, // 60 days
+        maxAgeSeconds: 60 * 24 * 60 * 60,
         purgeOnQuotaError: true,
       }),
     ],
   })
 );
 
-// Catch-all: if any request fails and nothing above served a response, try
-// hard to recover. Specifically, for navigation requests, fall back to the
-// precached app shell so a (re)launch in airplane mode does not show the
-// browser's native "no internet" error page.
+// ---------- Last-resort catch handler ----------
+
 setCatchHandler(async ({ request }) => {
   if (request.destination === 'document' || request.mode === 'navigate') {
     const cached = await caches.match('/index.html', { ignoreSearch: true });

@@ -17,7 +17,42 @@
       </div>
     </header>
 
-    <div v-if="!entries.length" class="empty-state has-text-centered">
+    <section v-if="$offline.pendingOutings.length" class="pending-outings">
+      <header class="pending-outings-header">
+        <fa-icon icon="upload" />
+        <span class="pending-outings-title">
+          {{ $offline.pendingOutings.length }}
+          {{ $gettext('outing(s) waiting to be published') }}
+        </span>
+        <button
+          v-if="$offline.online"
+          class="button is-small is-primary"
+          :disabled="$offline.syncing"
+          @click="$offline.syncPendingOutings()"
+        >
+          <fa-icon icon="rotate" :class="{ 'fa-spin': $offline.syncing }" />
+          &nbsp;{{ $offline.syncing ? $gettext('Syncing…') : $gettext('Sync now') }}
+        </button>
+        <span v-else class="tag is-warning">{{ $gettext('Offline') }}</span>
+      </header>
+      <ul class="pending-outings-list">
+        <li v-for="item in $offline.pendingOutings" :key="item.id" class="pending-outing">
+          <span class="pending-outing-title">{{ item.title || $gettext('Untitled outing') }}</span>
+          <span v-if="item.attempts > 0" class="tag is-light is-danger is-small">
+            {{ $gettext('Attempts:') }} {{ item.attempts }}
+          </span>
+          <button
+            class="button is-small is-text"
+            :title="$gettext('Discard this pending outing')"
+            @click="discardPending(item.id)"
+          >
+            <fa-icon icon="trash" />
+          </button>
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="!entries.length && !$offline.pendingOutings.length" class="empty-state has-text-centered">
       <fa-icon icon="download" size="4x" class="has-text-grey-lighter" />
       <p class="title is-5 mt-4">
         {{ $gettext('No topos saved for offline use yet.') | uppercaseFirstLetter }}
@@ -292,6 +327,14 @@ export default {
       await this.$offline.removeDocument(entry.type, entry.id, entry.lang);
       this.storage = await this.$offline.getStorageUsage();
     },
+
+    async discardPending(id) {
+      const message = this.$gettext('Discard this outing? Your data will be lost.');
+      if (!window.confirm(message)) {
+        return;
+      }
+      await this.$offline.removePendingOuting(id);
+    },
   },
 };
 </script>
@@ -446,5 +489,51 @@ export default {
   &:hover {
     color: $red;
   }
+}
+
+.pending-outings {
+  margin-bottom: 1.5rem;
+  padding: 0.85rem 1rem;
+  background: hsl(48, 100%, 95%);
+  border-left: 4px solid hsl(48, 100%, 50%);
+  border-radius: 6px;
+}
+
+.pending-outings-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.pending-outings-title {
+  font-weight: 600;
+  flex: 1;
+}
+
+.pending-outings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pending-outing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid hsl(48, 100%, 88%);
+
+  &:first-child {
+    border-top: 0;
+  }
+}
+
+.pending-outing-title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 </style>

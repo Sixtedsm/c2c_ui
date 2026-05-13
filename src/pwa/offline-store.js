@@ -77,3 +77,33 @@ export async function estimateUsage() {
   }
   return { usage: 0, quota: 0 };
 }
+
+const PENDING_OUTINGS_KEY = 'queue:pending-outings';
+
+export async function listPendingOutings() {
+  return (await get(PENDING_OUTINGS_KEY)) ?? [];
+}
+
+export async function enqueuePendingOuting(entry) {
+  const queue = await listPendingOutings();
+  queue.push({
+    id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    queuedAt: Date.now(),
+    attempts: 0,
+    ...entry,
+  });
+  await set(PENDING_OUTINGS_KEY, queue);
+  return queue[queue.length - 1];
+}
+
+export async function replacePendingOutings(queue) {
+  await set(PENDING_OUTINGS_KEY, queue);
+}
+
+export async function removePendingOuting(id) {
+  const queue = await listPendingOutings();
+  await set(
+    PENDING_OUTINGS_KEY,
+    queue.filter((item) => item.id !== id)
+  );
+}
