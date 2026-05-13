@@ -212,27 +212,9 @@ export default {
         }
 
         this.$imageViewer.clear();
-        this.promise = c2c[this.documentType]
-          .getCooked(this.documentId, this.expected_lang)
-          .catch(async (error) => {
-            // Defense in depth: if axios threw (network error or the SW could
-            // not be reached on this iOS launch), look up the document in the
-            // offline store directly. This is what the service worker is
-            // supposed to do transparently, but iOS Safari is unreliable about
-            // running the SW on standalone-PWA cold launches, so we mirror the
-            // check here.
-            if (this.$offline) {
-              const offlineData = await this.$offline.getDocument(
-                this.documentType,
-                this.documentId,
-                this.expected_lang
-              );
-              if (offlineData) {
-                return { data: offlineData };
-              }
-            }
-            throw error;
-          })
+        this.promise = c2c[this.documentType].getCooked(this.documentId, this.expected_lang);
+
+        this.promise
           .then(this.handleRedirection)
           .then(() => {
             this.$root.$emit('trigger-scroll');
@@ -241,6 +223,52 @@ export default {
           })
           .then(this.scrollToHash)
           .then(this.updateUrl);
+
+        // Offline fallback: ApiData's .catch only attaches a side-effect
+        // handler — its return value is discarded by design. So we cannot use
+        // promise chaining; instead we listen for the rejection on the inner
+        // axios promise and rehydrate the ApiData fields directly. Vue's
+        // reactivity on `this.promise` then picks up the populated `data` and
+        // the document renders as if the network call had succeeded.
+        if (this.$offline) {
+          this.promise.promise_.then(null, async () => {
+            try {
+              const offlineData = await this.$offline.getDocument(
+                this.documentType,
+                this.documentId,
+                this.expected_lang
+              );
+              if (!offlineData) {
+                return;
+              }
+              this.promise.data = offlineData;
+              this.promise.response = { data: offlineData, status: 200 };
+              this.promise.error = null;
+              this.promise.loading = false;
+              // Replay the success-side effects that the success chain would
+              // have run, so behaviour matches an online load.
+              try {
+                this.handleRedirection();
+              } catch {
+                /* noop */
+              }
+              this.$root.$emit('trigger-scroll');
+              this.$emit('updateHead');
+              try {
+                this.scrollToHash();
+              } catch {
+                /* noop */
+              }
+              try {
+                this.updateUrl();
+              } catch {
+                /* noop */
+              }
+            } catch {
+              /* noop */
+            }
+          });
+        }
       }
     },
 
