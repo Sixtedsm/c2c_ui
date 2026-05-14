@@ -89,7 +89,20 @@ export default {
     },
 
     showDownloadTraceButtons() {
-      return this.document.geometry && (this.document.geometry.geom_detail || this.documentType === 'waypoint');
+      if (!this.document.geometry) {
+        return false;
+      }
+      // Show GPX/KML buttons whenever the document has any geometry, including
+      // routes that only have a single geo-reference point (no GPS trace) —
+      // those are exported as a single waypoint. This addresses Florence_B
+      // and Bubu's feedback on the forum about not being able to download
+      // the coordinates of routes without a trace without going through the
+      // edition view.
+      return Boolean(this.document.geometry.geom_detail || this.document.geometry.geom);
+    },
+
+    hasOnlyPointGeometry() {
+      return Boolean(this.document.geometry && !this.document.geometry.geom_detail && this.document.geometry.geom);
     },
 
     hasMapLinks() {
