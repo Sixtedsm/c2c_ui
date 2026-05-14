@@ -26,9 +26,18 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// ---------- Resolve absolute paths from the SW scope ----------
+
+// On GitHub Pages the app is served under /c2c_ui/pwa-foundation/ ; on the
+// final C2C deployment it will be served at /. The SW's registration scope
+// gives us the right prefix in both cases, so handlers, caches.match() calls
+// and fallback URLs all use the same key the precache manifest emits.
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+const INDEX_HTML_PATH = new URL('index.html', self.registration.scope).pathname;
+
 // ---------- SPA navigation fallback ----------
 
-const navigationHandler = createHandlerBoundToURL('/index.html');
+const navigationHandler = createHandlerBoundToURL(INDEX_HTML_PATH);
 registerRoute(
   new NavigationRoute(navigationHandler, {
     denylist: [/^\/google[\w]*\.html$/, /^\/revive-adserver\.html$/],
@@ -184,11 +193,47 @@ registerRoute(
   })
 );
 
+// ---------- In-scope static assets: precache-first with network fallback ----------
+
+// Vue CLI emits JS / CSS chunks under our scope with hashed filenames. They
+// are precached at build time, but if the active SW and the in-memory page
+// somehow get out of sync (rare, but happens on iOS where the old page is
+// still loaded when a new SW activates) the browser will request a hash that
+// the SW does not have in its precache. Without this safety net the dynamic
+// import would fail offline ("+ outing" → blank page). With it, the SW will
+// transparently fall back to the network when online and cache the response
+// for next time.
+registerRoute(
+  ({ url, request }) => {
+    if (request.method !== 'GET') {
+      return false;
+    }
+    if (url.origin !== self.location.origin) {
+      return false;
+    }
+    if (!url.pathname.startsWith(SCOPE_PATH)) {
+      return false;
+    }
+    return request.destination === 'script' || request.destination === 'style';
+  },
+  new CacheFirst({
+    cacheName: 'c2c-app-chunks',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 30 * 24 * 60 * 60,
+        purgeOnQuotaError: true,
+      }),
+    ],
+  })
+);
+
 // ---------- Last-resort catch handler ----------
 
 setCatchHandler(async ({ request }) => {
   if (request.destination === 'document' || request.mode === 'navigate') {
-    const cached = await caches.match('/index.html', { ignoreSearch: true });
+    const cached = await caches.match(INDEX_HTML_PATH, { ignoreSearch: true });
     if (cached) {
       return cached;
     }

@@ -1,8 +1,8 @@
 <template>
   <aside>
-    <a :href="'/'" class="menu-brand has-text-centered">
+    <router-link :to="{ name: 'home' }" class="menu-brand has-text-centered">
       <img src="@/assets/img/logo.svg" alt="Camptocamp.org" />
-    </a>
+    </router-link>
     <router-link :to="{ name: 'topoguide' }">
       <span
         class="menu-item is-ellipsed"

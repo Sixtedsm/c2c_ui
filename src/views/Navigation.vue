@@ -17,14 +17,14 @@
       </span>
     </span>
 
-    <a
+    <router-link
       v-if="$screen.isMobile || $screen.isTablet"
-      :href="'/'"
+      :to="{ name: 'home' }"
       class="navigation-item navigation-brand has-text-centered"
       :class="{ 'is-hidden-mobile': !hideSearchInput }"
     >
       <img src="@/assets/img/logo.svg" alt="Camptocamp.org" />
-    </a>
+    </router-link>
 
     <dfm-ad-large v-if="!homePage() && !$screen.isMobile && !$screen.isTablet && !$screen.isDesktop" />
 
@@ -37,7 +37,7 @@
         <icon-help fixed-width />
         <span class="is-hidden-mobile"> {{ $gettext('help') | uppercaseFirstLetter }} </span>
       </router-link>
-      <div ref="searchInputContainer">
+      <div ref="searchInputContainer" class="search-input-container">
         <input-document
           ref="searchInput"
           class="navigation-item search-input"
@@ -335,6 +335,15 @@ nav {
   display: flex;
   align-items: center;
   line-height: 1.5;
+}
+
+// Without this, the search button wrapper is a block child of the flex
+// .navigation-end container and its inner .navigation-item drifts off the
+// shared baseline by a few pixels — the visible "decalage" of the magnifier
+// icon vs the rest of the toolbar.
+.search-input-container {
+  display: flex;
+  align-items: center;
 }
 
 .c2c-color {
