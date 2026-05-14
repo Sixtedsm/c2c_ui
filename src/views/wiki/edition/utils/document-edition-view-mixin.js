@@ -128,53 +128,53 @@ export default {
           this.modified = true;
         });
       } else {
+        // CREATE mode: build an empty document and expose it to the template
+        // SYNCHRONOUSLY. Previously the form was hidden behind a loading
+        // counter that only reached zero after every association lookup had
+        // resolved — meaning a single stalled or failed request would leave
+        // the user staring at a blank page when tapping "+ outing". Render
+        // first, enrich associations as they arrive: this is the robust path.
         const document = this.$documentUtils.buildDocument(this.documentType, this.lang);
-        this.promise = { data: null, loading: 1 };
+        this.promise = { data: document, loading: 0 };
 
-        // as some doc may be loaded, give the document once it's totally ready
-        const onload = () => {
-          this.promise.loading -= 1;
-          if (this.promise.loading === 0) {
+        let pending = 0;
+        const settleOne = () => {
+          pending -= 1;
+          this.promise.loading = pending;
+          if (pending === 0) {
             // TODO : implements a algorithm to determine if document has been modified
             this.modified = true;
-            this.promise.data = document;
             this.afterLoad();
           }
         };
 
-        // add current user for outings
+        // Auto-associate the current user on a new outing. Failures are
+        // tolerated — the form still works without an auto participant.
         if (this.documentType === 'outing' && this.$user.id) {
-          this.promise.loading += 1;
+          pending += 1;
+          this.promise.loading = pending;
           const profileFetch = c2c.profile.get(this.$user.id);
           profileFetch.then((response) => {
             this.$documentUtils.addAssociation(document, response.data);
           });
-          // Decrement the loading counter no matter what — if the profile
-          // call fails (network glitch, stale id) we still want the form to
-          // render, just without auto-associating the user. Without this
-          // safety net, a single failed fetch would leave the page blank
-          // forever and the "+ outing" action would appear to do nothing.
-          profileFetch.promise_.then(onload, onload);
+          profileFetch.promise_.then(settleOne, settleOne);
         }
 
-        // Add associations presents in url query
+        // Pre-fill associations from URL query (e.g. ?r=12345 → preselect route)
         for (const letter of Object.keys(this.$route.query)) {
-          const documentType = this.$documentUtils.getDocumentType(letter);
+          const associationType = this.$documentUtils.getDocumentType(letter);
 
-          if (documentType && this.$route.query[letter]) {
-            // Value may be a number or a string
+          if (associationType && this.$route.query[letter]) {
             const documentIds = String(this.$route.query[letter]).split(',');
 
             for (const documentId of documentIds) {
-              this.promise.loading += 1;
-              const fetcher = c2c[documentType].get(documentId);
+              pending += 1;
+              this.promise.loading = pending;
+              const fetcher = c2c[associationType].get(documentId);
               fetcher.then((response) => {
                 this.$documentUtils.addAssociation(document, response.data);
               });
-              // Same safety as the profile fetch above: always call onload so
-              // a single failed association lookup does not lock the form in
-              // a never-rendering state.
-              fetcher.promise_.then(onload, onload);
+              fetcher.promise_.then(settleOne, settleOne);
             }
           }
         }
@@ -183,7 +183,11 @@ export default {
           document.activities = this.$route.query.act.split(',');
         }
 
-        onload();
+        // If nothing was scheduled, fire afterLoad immediately.
+        if (pending === 0) {
+          this.modified = true;
+          this.afterLoad();
+        }
       }
     },
 

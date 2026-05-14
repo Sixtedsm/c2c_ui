@@ -1,26 +1,52 @@
 import Vue from 'vue';
 
 import c2c from '@/js/apis/c2c';
+import config from '@/js/config';
 import { getImageUrl } from '@/js/image-urls';
 import * as store from '@/pwa/offline-store';
 
 const EMBEDDED_IMAGE_REGEX = /<img[^<>]+c2c:document-id="(\d+)"/gm;
 const IMG_SRC_REGEX = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gim;
+// The C2C cooker emits embedded images without a real src; the Markdown
+// component rebuilds the URL at render time from this attribute.
+const URL_PROXY_REGEX = /<img\b[^>]*\bc2c:url-proxy\s*=\s*["']([^"']+)["']/gim;
+// Modern thumbnails are served in three formats and the <picture> element
+// picks the best one supported; we have to cache all three to guarantee
+// offline rendering whatever the browser picks.
+const IMAGE_FORMATS = ['', 'avif', 'webp'];
 const IMAGE_SIZES_TO_PREFETCH = ['MI', 'SI'];
 
-function extractImageSrcs(cooked) {
+function extractImageUrlsFromCooked(cooked) {
   const out = new Set();
   if (!cooked) {
     return out;
   }
+  const apiBase = config.urls.api;
   const visit = (value) => {
-    if (typeof value !== 'string' || value.indexOf('<img') === -1) {
+    if (typeof value !== 'string') {
+      return;
+    }
+    if (value.indexOf('<img') === -1) {
       return;
     }
     let match;
+
+    // 1) Direct src=… (already-rendered images, gallery thumbnails, etc.)
     IMG_SRC_REGEX.lastIndex = 0;
     while ((match = IMG_SRC_REGEX.exec(value)) !== null) {
       out.add(match[1]);
+    }
+
+    // 2) c2c:url-proxy=… (embedded figures rebuilt client-side by
+    //    Markdown.vue#computeImages). For each proxy URL we precache the
+    //    three format variants the runtime <picture> element will try.
+    URL_PROXY_REGEX.lastIndex = 0;
+    while ((match = URL_PROXY_REGEX.exec(value)) !== null) {
+      const proxyPath = match[1];
+      for (const fmt of IMAGE_FORMATS) {
+        const url = apiBase + proxyPath + (fmt ? `&extension=${fmt}` : '');
+        out.add(url);
+      }
     }
   };
   if (typeof cooked === 'string') {
@@ -59,10 +85,10 @@ async function prefetchImageVariants(imageDoc) {
 }
 
 async function prefetchSrcsFromCooked(cooked) {
-  for (const url of extractImageSrcs(cooked)) {
-    // Cooked HTML may contain absolute or protocol-relative URLs. We fetch
-    // them as-is so the service worker caches exactly the URL the browser
-    // will request when rendering the topo offline.
+  for (const url of extractImageUrlsFromCooked(cooked)) {
+    // We pull both real src= URLs and reconstructed c2c:url-proxy URLs so the
+    // service worker caches exactly the URLs the browser will request when
+    // rendering the topo offline (including avif/webp <picture> variants).
     await prefetchUrl(url);
   }
 }
