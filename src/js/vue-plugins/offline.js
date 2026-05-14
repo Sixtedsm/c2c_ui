@@ -3,6 +3,7 @@ import Vue from 'vue';
 import c2c from '@/js/apis/c2c';
 import config from '@/js/config';
 import { getImageUrl } from '@/js/image-urls';
+import ol from '@/js/libs/ol';
 import * as store from '@/pwa/offline-store';
 
 const EMBEDDED_IMAGE_REGEX = /<img[^<>]+c2c:document-id="(\d+)"/gm;
@@ -90,6 +91,131 @@ async function prefetchSrcsFromCooked(cooked) {
     // service worker caches exactly the URLs the browser will request when
     // rendering the topo offline (including avif/webp <picture> variants).
     await prefetchUrl(url);
+  }
+}
+
+// ---------- Pre-cache map tiles around the trace ----------
+
+// Zoom levels chosen for outdoor / mountain use:
+//  11: massif overview
+//  12: zone scale
+//  13: trail scale
+//  14: detailed
+//  15: very detailed (only when the bounding box is small)
+const TILE_ZOOM_LEVELS = [11, 12, 13, 14, 15];
+const MAX_TILES_PER_SAVE = 250;
+// OpenTopoMap is C2C's default carto layer; we mirror the URL the OpenLayers
+// XYZ source builds so the prefetched response matches the runtime request.
+const OPENTOPOMAP_SUBDOMAINS = ['a', 'b', 'c'];
+
+function lonLatToTile(lon, lat, zoom) {
+  const n = 2 ** zoom;
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+  return [Math.max(0, Math.min(n - 1, x)), Math.max(0, Math.min(n - 1, y))];
+}
+
+function collectGeometryCoordinates(geometry) {
+  if (!geometry || !geometry.type) {
+    return [];
+  }
+  if (geometry.type === 'Point') {
+    return [geometry.coordinates];
+  }
+  if (geometry.type === 'LineString' || geometry.type === 'MultiPoint') {
+    return geometry.coordinates;
+  }
+  if (geometry.type === 'MultiLineString' || geometry.type === 'Polygon') {
+    return geometry.coordinates.flat();
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.flat(2);
+  }
+  if (geometry.type === 'GeometryCollection') {
+    return (geometry.geometries || []).flatMap(collectGeometryCoordinates);
+  }
+  return [];
+}
+
+function getLonLatBboxFromC2cGeom(geomJson) {
+  if (!geomJson) {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(geomJson);
+  } catch {
+    return null;
+  }
+  const coords3857 = collectGeometryCoordinates(parsed);
+  if (!coords3857.length) {
+    return null;
+  }
+  let minLon = Infinity;
+  let minLat = Infinity;
+  let maxLon = -Infinity;
+  let maxLat = -Infinity;
+  for (const xy of coords3857) {
+    const [lon, lat] = ol.proj.toLonLat(xy);
+    if (lon < minLon) minLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lon > maxLon) maxLon = lon;
+    if (lat > maxLat) maxLat = lat;
+  }
+  if (!Number.isFinite(minLon)) {
+    return null;
+  }
+  return { minLon, minLat, maxLon, maxLat };
+}
+
+function expandBbox(bbox, paddingDeg) {
+  return {
+    minLon: bbox.minLon - paddingDeg,
+    minLat: bbox.minLat - paddingDeg,
+    maxLon: bbox.maxLon + paddingDeg,
+    maxLat: bbox.maxLat + paddingDeg,
+  };
+}
+
+function buildOpenTopoMapTileUrls(bbox) {
+  // Pad the box slightly so the user can pan around the trace before going
+  // offline without losing the surrounding context (~1.5 km at mid-latitudes).
+  const padded = expandBbox(bbox, 0.015);
+  const urls = [];
+  for (const z of TILE_ZOOM_LEVELS) {
+    const [x1, y1] = lonLatToTile(padded.minLon, padded.maxLat, z); // NW corner
+    const [x2, y2] = lonLatToTile(padded.maxLon, padded.minLat, z); // SE corner
+    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x += 1) {
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y += 1) {
+        // OpenLayers XYZ rotates subdomains by tile hash; we cover all three
+        // so whatever subdomain the runtime picks finds the tile in cache.
+        for (const sub of OPENTOPOMAP_SUBDOMAINS) {
+          urls.push(`https://${sub}.tile.opentopomap.org/${z}/${x}/${y}.png`);
+        }
+      }
+    }
+    if (urls.length >= MAX_TILES_PER_SAVE) {
+      // Higher zoom levels would blow up the cache for large traces; stop here.
+      break;
+    }
+  }
+  return urls.slice(0, MAX_TILES_PER_SAVE);
+}
+
+async function prefetchTilesForDocument(data) {
+  const geom = data?.geometry?.geom_detail || data?.geometry?.geom;
+  const bbox = getLonLatBboxFromC2cGeom(geom);
+  if (!bbox) {
+    return;
+  }
+  const urls = buildOpenTopoMapTileUrls(bbox);
+  // We fire requests in small parallel batches so the tile servers do not
+  // see a single burst of 200 connections (some throttle aggressively).
+  const BATCH = 6;
+  for (let i = 0; i < urls.length; i += BATCH) {
+    const slice = urls.slice(i, i + BATCH);
+    await Promise.all(slice.map((url) => prefetchUrl(url)));
   }
 }
 
@@ -205,7 +331,15 @@ export default function install(Vue) {
             }
           }
 
-          // 3) Also persist the lightweight image metadata for images that are
+          // 3) Pre-cache map tiles around the trace so the user has the
+          //    topographic base layer offline (OpenTopoMap by default, the C2C
+          //    fallback layer). Run in the background — the "saved" feedback
+          //    has already fired, no need to block on this.
+          prefetchTilesForDocument(data).catch(() => {
+            /* tile prefetch is best-effort */
+          });
+
+          // 4) Also persist the lightweight image metadata for images that are
           //    embedded by id (so a later code path that calls c2c.image.get…
           //    on them still resolves offline).
           const embeddedIds = extractEmbeddedImageIds(data?.cooked).map(String);
