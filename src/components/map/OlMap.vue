@@ -87,6 +87,18 @@
       </button>
     </div>
 
+    <div
+      v-show="showCenterOnGeolocation && geolocationActive"
+      ref="compassControl"
+      :title="compassActive ? $gettext('Hide heading arrow') : $gettext('Show compass heading')"
+      class="ol-control ol-control-compass"
+      :class="{ 'is-active': compassActive }"
+    >
+      <button @click="toggleCompass">
+        <fa-icon icon="compass" />
+      </button>
+    </div>
+
     <div v-show="showFilterControl" ref="useMapAsFilter" class="ol-control ol-control-use-map-as-filter">
       <input
         id="filter-documents-with-map"
@@ -337,6 +349,10 @@ export default {
         zIndex: 1000,
       }),
 
+      compassActive: false,
+      currentHeadingDeg: 0,
+      orientationHandler: null,
+
       showLayerSwitcher: false,
 
       filterDocumentsWithMap: Boolean(this.$route.query.bbox),
@@ -453,6 +469,7 @@ export default {
         new ol.control.Control({ element: this.$refs.layerSwitcher }),
         new ol.control.Control({ element: this.$refs.useMapAsFilter }),
         new ol.control.Control({ element: this.$refs.centerOnGeolocation }),
+        new ol.control.Control({ element: this.$refs.compassControl }),
         new ol.control.Control({ element: this.$refs.recenterOnControl }),
         new ol.control.Control({ element: this.$refs.recenterOnPropositions }),
         new ol.control.Control({ element: this.$refs.resetGeometry }),
@@ -503,15 +520,7 @@ export default {
       projection: this.view.getProjection(),
     });
 
-    this.positionFeature.setStyle(
-      new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: 7,
-          fill: new ol.style.Fill({ color: '#1d72ff' }),
-          stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 }),
-        }),
-      })
-    );
+    this.refreshPositionStyle();
 
     this.accuracyFeature.setStyle(
       new ol.style.Style({
@@ -559,6 +568,9 @@ export default {
     this.fullScreenControl.un('leavefullscreen', this.onFullscreenChange);
     if (this.geolocation) {
       this.geolocation.setTracking(false);
+    }
+    if (this.compassActive) {
+      this.disableCompass();
     }
   },
 
@@ -1208,6 +1220,92 @@ export default {
       }
     },
 
+    refreshPositionStyle() {
+      if (this.compassActive) {
+        // SVG arrow pointing up; OL rotates it clockwise around the feature.
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <path d="M16 4 L25 26 L16 21 L7 26 Z" fill="#1d72ff" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+</svg>`;
+        const rotation = (this.currentHeadingDeg * Math.PI) / 180;
+        this.positionFeature.setStyle(
+          new ol.style.Style({
+            image: new ol.style.Icon({
+              src: 'data:image/svg+xml;utf8,' + encodeURIComponent(svg),
+              rotation,
+              scale: 1,
+              anchor: [0.5, 0.5],
+            }),
+          })
+        );
+      } else {
+        this.positionFeature.setStyle(
+          new ol.style.Style({
+            image: new ol.style.Circle({
+              radius: 7,
+              fill: new ol.style.Fill({ color: '#1d72ff' }),
+              stroke: new ol.style.Stroke({ color: '#ffffff', width: 2 }),
+            }),
+          })
+        );
+      }
+    },
+
+    async toggleCompass() {
+      if (this.compassActive) {
+        this.disableCompass();
+      } else {
+        await this.enableCompass();
+      }
+    },
+
+    async enableCompass() {
+      // iOS Safari requires an explicit user-gesture-bound permission request
+      // for the DeviceOrientation API. Other platforms allow it transparently.
+      if (
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function'
+      ) {
+        try {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission !== 'granted') {
+            return;
+          }
+        } catch {
+          return;
+        }
+      }
+      this.orientationHandler = (event) => {
+        let heading;
+        if (typeof event.webkitCompassHeading === 'number') {
+          // iOS Safari: clockwise from magnetic north, already what we want.
+          heading = event.webkitCompassHeading;
+        } else if (typeof event.alpha === 'number') {
+          // W3C: alpha is counter-clockwise from north.
+          heading = 360 - event.alpha;
+        } else {
+          return;
+        }
+        this.currentHeadingDeg = heading;
+        this.refreshPositionStyle();
+      };
+      // deviceorientationabsolute is more accurate where supported (Android),
+      // deviceorientation is the iOS fallback.
+      window.addEventListener('deviceorientationabsolute', this.orientationHandler, true);
+      window.addEventListener('deviceorientation', this.orientationHandler, true);
+      this.compassActive = true;
+      this.refreshPositionStyle();
+    },
+
+    disableCompass() {
+      if (this.orientationHandler) {
+        window.removeEventListener('deviceorientationabsolute', this.orientationHandler, true);
+        window.removeEventListener('deviceorientation', this.orientationHandler, true);
+        this.orientationHandler = null;
+      }
+      this.compassActive = false;
+      this.refreshPositionStyle();
+    },
+
     activateCenterOnGeolocation() {
       // Backwards-compatible entry point still used by edition views: turn tracking on,
       // recenter once, then stop.
@@ -1238,6 +1336,10 @@ export default {
       this.geolocationLayer.getSource().clear();
       this.positionFeature.setGeometry(null);
       this.accuracyFeature.setGeometry(null);
+      // The compass arrow only makes sense while we are showing the position.
+      if (this.compassActive) {
+        this.disableCompass();
+      }
     },
 
     handleGeolocationChange() {
@@ -1554,6 +1656,16 @@ $control-margin: 0.5em;
 .ol-control-center-on-geolocation {
   top: 120px;
   left: $control-margin;
+}
+
+.ol-control-compass {
+  top: 160px;
+  left: $control-margin;
+
+  &.is-active button {
+    background: $color-base-c2c;
+    color: $white;
+  }
 }
 
 .ol-control-layer-switcher {

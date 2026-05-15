@@ -37,6 +37,8 @@
       :label="offlineLabel"
     />
 
+    <tool-box-button v-if="canPrint" @click="printDocument" icon="print" :label="$gettext('Print / save as PDF')" />
+
     <tool-box-button
       v-if="document.geometry && document.geometry.geom && documentType !== 'area'"
       :to="linkToClosestDocuments"
@@ -372,6 +374,12 @@ export default {
       return ['route', 'waypoint', 'outing', 'article', 'book', 'xreport', 'image'].includes(this.documentType);
     },
 
+    canPrint() {
+      // Print is useful for documents you take in the field; profile pages do
+      // not really fit the use case.
+      return this.documentType !== 'profile';
+    },
+
     offlineDocId() {
       return this.document.document_id;
     },
@@ -441,6 +449,13 @@ export default {
           this.isAccountBlocked = true;
         });
       }
+    },
+
+    printDocument() {
+      // The C2C stylesheet has plenty of print rules (no-print classes on the
+      // nav, side menu, ToolBox itself, ads, etc.), so triggering the native
+      // browser print dialog is enough — the user can then save as PDF.
+      window.print();
     },
 
     async toggleOffline() {
