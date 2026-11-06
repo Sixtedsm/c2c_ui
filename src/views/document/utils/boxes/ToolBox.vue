@@ -112,6 +112,31 @@
       :label="$gettext('Translate')"
     />
 
+    <!-- My topos (src/stores/offline.ts): a row with a real label, which the bookmark of the header cannot have -->
+    <template v-if="isNormalView && SAVABLE_TYPES.includes(documentType)">
+      <tool-box-button
+        v-if="offline.isOfflineReady(documentType, document.document_id!)"
+        :to="{ name: 'offline' }"
+        icon="circle-check"
+        icon-class="has-text-success"
+        :label="$gettext('Saved offline')"
+      />
+      <tool-box-button
+        v-else
+        @click="saveOffline"
+        :icon="savingOffline ? 'spinner' : 'download'"
+        :icon-class="savingOffline ? 'fa-spin' : undefined"
+        :label="savingOffline ? $gettext('Saving…') : $gettext('Save offline')"
+      />
+      <tool-box-button
+        v-if="documentType === 'route'"
+        @click="saveDayPack"
+        :icon="savingPack ? 'spinner' : 'layer-group'"
+        :icon-class="savingPack ? 'fa-spin' : undefined"
+        :label="savingPack ? $gettext('Saving…') : $gettext('Save as the pack of the day')"
+      />
+    </template>
+
     <tool-box-button
       :href="`mailto:${reportingIssueMail}?subject=${reportingSubject}&body=${reportingBody}`"
       :icon="['fas', 'exclamation-circle']"
@@ -178,6 +203,7 @@
 </template>
 
 <script setup lang="ts">
+import { toast } from 'bulma-toast';
 import { format as formatCoordinate } from 'ol/coordinate';
 import { toLonLat } from 'ol/proj';
 import { computed, ref, useTemplateRef } from 'vue';
@@ -200,16 +226,64 @@ import { useGlobalProperties } from '@/js/composables/global-properties';
 import constants from '@/js/constants';
 import getFundraiser from '@/js/get-fundraiser';
 import { cookedDocumentProperty, useDocumentType } from '@/js/properties';
+import { OFFLINE_MODE, SAVABLE_TYPES } from '@/pwa/offline-store';
+import { useOfflineStore } from '@/stores/offline';
 
 const reportingIssueMail = 'topo-fr@camptocamp.org';
 
 const props = defineProps({ ...cookedDocumentProperty });
 
 const route = useRoute();
-const { $gettext, $language, $user } = useGlobalProperties();
+const { $gettext, $language, $user, $documentUtils } = useGlobalProperties();
+const offline = useOfflineStore();
 // the view mode too: isDraftView, isVersionView...
 const { isNormalView, isEditable, isDeletable } = useEditable(() => props.document);
 const { documentType } = useDocumentType(props);
+
+const savingOffline = ref(false);
+const savingPack = ref(false);
+const notify = (message: string, type: 'is-success' | 'is-warning') =>
+  toast({ message, type, position: 'bottom-center', duration: 6000 });
+const thisDocument = () => ({
+  id: props.document.document_id!,
+  lang: props.document.cooked.lang!,
+  title: $documentUtils.getDocumentTitle(props.document, props.document.cooked.lang!),
+});
+
+async function saveOffline() {
+  if (savingOffline.value) {
+    return;
+  }
+  savingOffline.value = true;
+  try {
+    await offline.saveDocument({ type: documentType.value, ...thisDocument(), mode: OFFLINE_MODE });
+    notify($gettext('Saved offline'), 'is-success');
+  } catch {
+    notify($gettext('Download failed: check the network and try again'), 'is-warning');
+  } finally {
+    savingOffline.value = false;
+  }
+}
+
+async function saveDayPack() {
+  const route = thisDocument();
+  const folderName = window.prompt($gettext('Name of the pack?'), route.title)?.trim();
+  if (!folderName || savingPack.value) {
+    return;
+  }
+  savingPack.value = true;
+  try {
+    const waypoints = await offline.saveDayPack(route, folderName);
+    notify(
+      $gettext('Pack saved offline, in My topos: the route and its waypoints:') + ' ' + (waypoints + 1),
+      'is-success'
+    );
+  } catch {
+    notify($gettext('Download failed: check the network and try again'), 'is-warning');
+  } finally {
+    savingPack.value = false;
+  }
+}
 
 // the windows, named apart from their tags
 type Modal = { show(): void };

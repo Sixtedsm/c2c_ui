@@ -2,16 +2,13 @@
   <div id="camptocamp_htad" class="ams-ad is-flex is-justify-content-center is-clipped" />
 </template>
 
-<script lang="ts">
-// a component without options: its script only adds the ad script, once, when the ad components are first imported
-export default {};
+<script setup lang="ts">
+import { onMounted } from 'vue';
 
-if (!document.getElementById('ad_script')) {
-  const s = document.createElement('script');
-  s.id = 'ad_script';
-  s.src = 'https://static.admysports.com/hb/site/camptocamp/hb_camptocamp.js';
-  document.getElementsByTagName('head')[0].appendChild(s);
-}
+import { loadAdScript } from '@/js/ads';
+
+// the ad script once a slot is in the page, after the page (src/js/ads.ts)
+onMounted(loadAdScript);
 </script>
 
 <style lang="css" scoped>
