@@ -373,4 +373,9 @@ $cards-gap: 0.25rem;
     }
   }
 }
+
+// the dark theme of the app (src/stores/app-settings.ts, App.vue): the header of the listing on the dark page
+html[data-theme='dark'] .search-infos {
+  background-color: #1a1a1a;
+}
 </style>
