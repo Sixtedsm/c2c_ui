@@ -12,7 +12,7 @@
     </card-row>
 
     <card-row v-if="images.length">
-      <gallery :images="images" />
+      <gallery :images="images" :has-more="hasMore" :loading-more="loadingMore" @more="loadAllImages" />
     </card-row>
 
     <div class="row">
@@ -88,8 +88,11 @@ import CardRow from './utils/CardRow.vue';
 import { cardProps } from './utils/card';
 
 import Gallery from '@/components/gallery/Gallery.vue';
+import c2c from '@/js/apis/c2c';
+import type DocumentService from '@/js/apis/c2c/DocumentService';
 import forum from '@/js/apis/forum';
 import { useGlobalProperties } from '@/js/composables/global-properties';
+import type { C2cDocument } from '@/js/vue-plugins/document-utils';
 
 const props = defineProps({
   ...cardProps,
@@ -99,7 +102,7 @@ const props = defineProps({
   },
 });
 
-const { $documentUtils, $gettext } = useGlobalProperties();
+const { $documentUtils, $gettext, $language, $router } = useGlobalProperties();
 
 const forumAvatarUrl = forum.url + '/user_avatar/' + forum.url.replace('https://', '') + '/';
 
@@ -109,7 +112,37 @@ const document = computed(() => props.item.document);
 const documentType = computed(() => $documentUtils.getDocumentType(document.value['type']));
 const locale = computed(() => $documentUtils.getLocaleSmart(props.item.document));
 const dates = computed(() => $documentUtils.getOutingDatesLocalized(props.item['document']));
-const images = computed(() => [props.item.image1, props.item.image2, props.item.image3].filter(Boolean));
+// the feed gives three photos at most, and says when there are more (more_images): all of them, in place, on demand
+const allImages = ref<object[] | null>(null);
+const loadingMore = ref(false);
+const images = computed(
+  () => allImages.value ?? [props.item.image1, props.item.image2, props.item.image3].filter(Boolean)
+);
+const hasMore = computed(() => Boolean(props.item.more_images) && !allImages.value);
+
+async function loadAllImages() {
+  if (loadingMore.value) {
+    return;
+  }
+  loadingMore.value = true;
+  try {
+    const { data } = await (c2c[documentType.value] as DocumentService).get(
+      document.value.document_id,
+      $language.current ?? undefined
+    );
+    const all = (data as C2cDocument).associations?.images;
+    if (all?.length) {
+      allImages.value = all;
+    } else {
+      // nothing more to show here: the document has them
+      $router.push({ name: documentType.value, params: { id: document.value.document_id } });
+    }
+  } catch {
+    // no network: the three photos stay, the button too
+  } finally {
+    loadingMore.value = false;
+  }
+}
 
 const actionLine = computed(
   () =>

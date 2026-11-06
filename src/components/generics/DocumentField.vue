@@ -40,18 +40,20 @@
 
     <span v-else>
       <span v-if="showPrefix">{{ prefix || field.prefix }}</span>
-      {{ divisor ? Math.round(value / divisor) : value }}
+      {{ displayed.value }}
     </span>
 
     <span v-if="showUnit && !field.skipSpaceBeforeUnit">&nbsp;</span>
-    <span v-if="showUnit">{{ unit || field.unit }}</span>
+    <span v-if="showUnit">{{ displayed.unit }}</span>
   </span>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 
+import { useGlobalProperties } from '@/js/composables/global-properties';
 import { documentProperty, fieldProperty } from '@/js/properties';
+import { displayValueAndUnit } from '@/js/units';
 
 const props = defineProps({
   ...documentProperty,
@@ -77,6 +79,12 @@ const props = defineProps({
 // the value of the field, of any type (string, number, list...)
 
 const value = computed<any>(() => props.document[props.field.name]);
+
+// in the units the user chose (meters or feet...)
+const { $appSettings } = useGlobalProperties();
+const displayed = computed(() =>
+  displayValueAndUnit(value.value, props.unit || props.field.unit || '', props.divisor, $appSettings.units)
+);
 
 const isArray = computed(() => Array.isArray(value.value));
 
