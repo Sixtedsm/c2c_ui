@@ -12,6 +12,14 @@
           <follow-button v-if="!isPrintingView" :document="document" />
           <tags-button v-if="!isPrintingView" :document="document" />
 
+          <add-link
+            v-if="isNormalView && documentType === 'route'"
+            document-type="outing"
+            :query="{ r: document.document_id }"
+            class="add-my-outing"
+          >
+            <fa-icon icon="plus" />&nbsp;{{ $gettext('Add my outing') }}
+          </add-link>
           <offline-header-button
             v-if="isNormalView && SAVABLE_TYPES.includes(documentType)"
             :document-type="documentType"
@@ -102,6 +110,19 @@ const title = computed(() => $documentUtils.getDocumentTitle(props.document, lan
   color: $text;
 }
 
+// the outing of this route, in one tap
+.button-bar > a.add-my-outing {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: $primary;
+  color: $white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 .button-bar > span,
 .button-bar > a {
   margin-left: 0.25rem;
@@ -114,6 +135,19 @@ const title = computed(() => $documentUtils.getDocumentTitle(props.document, lan
 .title {
   .outing-date {
     margin-left: 0.5rem;
+  }
+}
+
+// on a phone the buttons take their own line, above the title: floated beside it, they left a long title a few
+// letters per line ("Aig / uille de la République")
+@media screen and (max-width: $tablet) {
+  .button-bar {
+    float: none !important;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    margin-bottom: 0.5rem;
   }
 }
 
