@@ -110,6 +110,22 @@
           }}
         </p>
 
+        <h2>{{ $gettext('The forum') }}</h2>
+        <p>
+          {{
+            $gettext(
+              'More → Forum opens the forum of Camptocamp in the app, with its own tabs at the bottom: recent discussions, categories, search, your profile, and the way back to the topos.'
+            )
+          }}
+        </p>
+        <p>
+          {{
+            $gettext(
+              'Replying, liking, bookmarking, your notifications and messages need your session of the forum: if the app asks for it, open the forum once (Open my forum session), your Camptocamp account signs you in.'
+            )
+          }}
+        </p>
+
         <h2>{{ $gettext('Settings') }}</h2>
         <p>
           {{

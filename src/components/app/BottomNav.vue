@@ -1,7 +1,7 @@
 <template>
-  <nav class="bottom-nav no-print" :aria-label="$gettext('Main navigation')">
+  <nav class="bottom-nav no-print" :aria-label="isForum ? $gettext('Forum navigation') : $gettext('Main navigation')">
     <ul class="bottom-nav-list">
-      <li v-for="tab of tabs" :key="tab.key" class="bottom-nav-item">
+      <li v-for="tab of shownTabs" :key="tab.key" class="bottom-nav-item">
         <router-link :to="tab.to" class="bottom-nav-link" :class="{ 'is-active': isActive(tab) }">
           <span class="bottom-nav-icon-wrap">
             <fa-icon :icon="tab.icon" class="bottom-nav-icon" />
@@ -36,7 +36,7 @@ interface Tab {
   badgeLabel?: string;
 }
 
-const { $gettext } = useGlobalProperties();
+const { $gettext, $user } = useGlobalProperties();
 const route = useRoute();
 const router = useRouter();
 
@@ -85,6 +85,48 @@ const tabs = computed<Tab[]>(() =>
     },
   ].filter((tab) => router.hasRoute((tab.to as { name: string }).name))
 );
+
+// In the forum, the tabs of the forum, and one back to the topos: two worlds, each with its own bar
+const isForum = computed(() => String(route.name ?? '').startsWith('forum'));
+const forumTabs = computed<Tab[]>(() => [
+  {
+    key: 'forum-recent',
+    label: $gettext('Recent'),
+    icon: 'clock-rotate-left',
+    to: { name: 'forum' },
+    match: ['forum'],
+  },
+  {
+    key: 'forum-categories',
+    label: $gettext('Categories'),
+    icon: 'folder',
+    to: { name: 'forum-categories' },
+    match: ['forum-categories', 'forum-category'],
+  },
+  {
+    key: 'forum-search',
+    label: $gettext('Search', 'navigation'),
+    icon: 'magnifying-glass',
+    to: { name: 'forum-search' },
+    match: ['forum-search'],
+  },
+  {
+    // the user's page on the forum; signing in first
+    key: 'forum-me',
+    label: $gettext('Me'),
+    icon: 'user',
+    to: $user.forumUsername ? { name: 'forum-user', params: { username: $user.forumUsername } } : { name: 'auth' },
+    match: $user.forumUsername && route.params.username === $user.forumUsername ? ['forum-user'] : [],
+  },
+  {
+    key: 'forum-back',
+    label: $gettext('Topos'),
+    icon: 'mountain',
+    to: { name: 'home' },
+    match: [],
+  },
+]);
+const shownTabs = computed(() => (isForum.value ? forumTabs.value : tabs.value));
 
 // the first tab whose routes contain the current one
 const isActive = (tab: Tab) => tab.match.includes(String(route.name ?? ''));

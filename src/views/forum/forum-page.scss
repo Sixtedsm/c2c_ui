@@ -1,0 +1,38 @@
+// The styles shared by the pages of the forum, used by the <style scoped> of each page (whose root is a .section)
+
+// a column, as on the forum itself: lines of a readable length on a computer screen
+.section {
+  // its width even when there is little in it (the page is a column of flex items, which shrink to their content)
+  width: 100%;
+  max-width: 60rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+// The round button of the forum pages ("+" to write, or to the last post), above the bottom tab bar
+.forum-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 27;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 50%;
+  background: #ff9933;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover,
+  &:focus {
+    background: #e6791f;
+    color: white;
+    text-decoration: none;
+  }
+}

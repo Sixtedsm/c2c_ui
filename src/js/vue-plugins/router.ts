@@ -58,6 +58,18 @@ const MeView = () => import('@/views/user/MeView.vue');
 const MoreView = () => import('@/views/MoreView.vue');
 const AppSettingsView = () => import('@/views/user/AppSettingsView.vue');
 const OfflineView = () => import('@/views/user/OfflineView.vue');
+// the forum of the app (Discourse's API), in the phone layout
+const ForumView = () => import('@/views/forum/ForumView.vue');
+const ForumCategoriesView = () => import('@/views/forum/ForumCategoriesView.vue');
+const ForumCategoryView = () => import('@/views/forum/ForumCategoryView.vue');
+const ForumTagView = () => import('@/views/forum/ForumTagView.vue');
+const ForumTopicView = () => import('@/views/forum/ForumTopicView.vue');
+const ForumUserView = () => import('@/views/forum/ForumUserView.vue');
+const ForumSearchView = () => import('@/views/forum/ForumSearchView.vue');
+const ForumNewTopicView = () => import('@/views/forum/ForumNewTopicView.vue');
+const ForumBookmarksView = () => import('@/views/forum/ForumBookmarksView.vue');
+const ForumNotificationsView = () => import('@/views/forum/ForumNotificationsView.vue');
+const ForumMessagesView = () => import('@/views/forum/ForumMessagesView.vue');
 const AppGuideView = () => import('@/views/static-views/AppGuideView.vue');
 
 const routes: RouteRecordRaw[] = [
@@ -89,14 +101,24 @@ const routes: RouteRecordRaw[] = [
   { path: '/offline', name: 'offline', component: OfflineView },
   { path: '/app-guide', name: 'app-guide', component: AppGuideView },
 
-  // leaves the UI for the forum before any component is needed: vue-router's types want one on every route
+  // The forum, in both layouts: read and written through the Discourse API of forum.camptocamp.org (src/js/apis/forum.ts)
+  { path: '/forum', name: 'forum', component: ForumView },
+  { path: '/forum/categories', name: 'forum-categories', component: ForumCategoriesView },
+  { path: '/forum/c/:slug/:id(\\d+)', name: 'forum-category', component: ForumCategoryView },
+  { path: '/forum/tag/:tag', name: 'forum-tag', component: ForumTagView, props: true },
+  { path: '/forum/t/:id(\\d+)/:slug?', name: 'forum-topic', component: ForumTopicView },
+  { path: '/forum/u/:username', name: 'forum-user', component: ForumUserView },
+  { path: '/forum/search', name: 'forum-search', component: ForumSearchView },
+  // as the user, on the forum
+  { path: '/forum/new-topic', name: 'forum-new-topic', component: ForumNewTopicView, meta: { requiresAuth: true } },
+  { path: '/forum/bookmarks', name: 'forum-bookmarks', component: ForumBookmarksView, meta: { requiresAuth: true } },
   {
-    path: '/forum',
-    name: 'forum',
-    beforeEnter() {
-      location.href = config.urls.forum;
-    },
-  } as unknown as RouteRecordRaw,
+    path: '/forum/notifications',
+    name: 'forum-notifications',
+    component: ForumNotificationsView,
+    meta: { requiresAuth: true },
+  },
+  { path: '/forum/messages', name: 'forum-messages', component: ForumMessagesView, meta: { requiresAuth: true } },
 ];
 
 // a component of a route, or the function lazy loading it

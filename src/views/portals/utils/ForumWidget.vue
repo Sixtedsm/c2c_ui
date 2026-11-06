@@ -17,6 +17,7 @@
           target="_blank"
           rel="noopener"
           :title="topic.last_poster_username"
+          @click="openInApp($event, topic)"
         >
           <!-- no avatar when the last poster is missing from the users of the answer -->
           <img
@@ -43,6 +44,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 
 import forum from '@/js/apis/forum';
 
@@ -56,6 +58,7 @@ type Topic = {
   last_poster_user?: { username: string; avatar_template: string };
 };
 
+const router = useRouter();
 const EXCLUDED_CATEGORIES = [
   // https://forum.camptocamp.org/c/comments
   // document's comments
@@ -150,6 +153,18 @@ const imgSize = computed(() => (props.wide ? 24 : 20));
 
 function getAvatarUrl(user: { avatar_template: string }) {
   return forum.getAvatarUrl(user, imgSize.value);
+}
+
+// the forum of the app, at the last post (a ctrl or cmd click keeps the forum's page, in a new tab)
+function openInApp(event: MouseEvent, topic: Topic) {
+  if (!event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    void router.push({
+      name: 'forum-topic',
+      params: { id: topic.id, slug: topic.slug },
+      query: { post: topic.highest_post_number },
+    });
+  }
 }
 
 function getTopicUrl(topic: Topic) {

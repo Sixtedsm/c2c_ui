@@ -105,7 +105,7 @@ defineOptions({ name: 'MobileTopBar' });
 const HELP_ARTICLE_ID = 106732;
 const ADDABLE_TYPES = ['outing', 'route', 'waypoint', 'article', 'book', 'xreport'];
 // the routes of the bottom bar tabs: the logo on the left, no back arrow
-const TAB_ROUTES = new Set(['topoguide', 'home', 'offline', 'me', 'more']);
+const TAB_ROUTES = new Set(['topoguide', 'home', 'offline', 'me', 'more', 'forum']);
 
 interface PickedDocument {
   document_id: number;
@@ -165,7 +165,8 @@ const title = computed(() => {
     whatsnew: $gettext('Recent changes'),
     itinevert: 'Itinévert',
   };
-  const name = titles[routeName.value];
+  // the pages of the forum of the app, the forum
+  const name = titles[routeName.value] ?? (routeName.value.startsWith('forum') ? $gettext('Forum') : null);
   return name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Camptocamp';
 });
 
