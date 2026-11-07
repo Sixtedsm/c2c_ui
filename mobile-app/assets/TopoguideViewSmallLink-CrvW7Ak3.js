@@ -1,0 +1,2 @@
+import{d as r,c as n,a,w as s,r as i,o as c,x as l}from"./vendor-Bbabb8pZ.js";import{i as p}from"./index-CK5QW_k7.js";const d=r({__name:"TopoguideViewSmallLink",props:{to:{type:Object,required:!0}},setup(e){return(o,u)=>{const t=i("router-link");return c(),n("div",null,[a(t,{to:e.to},{default:s(()=>[l(o.$slots,"default",{},void 0,!0)]),_:3},8,["to"])])}}}),f=p(d,[["__scopeId","data-v-36c0bfe1"]]);export{f as T};
+//# sourceMappingURL=TopoguideViewSmallLink-CrvW7Ak3.js.map
