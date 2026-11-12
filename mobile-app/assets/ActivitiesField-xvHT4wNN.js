@@ -1,0 +1,2 @@
+import{Na as e,Qa as t,Va as n,no as r,uo as i,za as a}from"./vendor-CECNBT99.js";import{n as o}from"./FieldView-BBo-KMT0.js";import{N as s,tt as c}from"./index-YlvDpLbG.js";var l=n({__name:`ActivitiesField`,props:{...s},setup(n){return(n,s)=>{let c=r(`activities`);return t(),e(o,{label:n.$gettext(`activities`)},{default:i(()=>[a(c,{activities:n.document.activities,class:`is-size-3 has-text-secondary`},null,8,[`activities`])]),_:1},8,[`label`])}}}),u=c(l,[[`__scopeId`,`data-v-c89f3fc1`]]);export{u as t};
+//# sourceMappingURL=ActivitiesField-xvHT4wNN.js.map
