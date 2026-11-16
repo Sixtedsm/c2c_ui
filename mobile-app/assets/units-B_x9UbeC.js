@@ -1,2 +1,0 @@
-var e=[`metric`,`imperial`],t=3.28084,n=.621371,r=e=>Math.round(e*10)/10;function i(e,i,a,o){let s={value:a&&typeof e==`number`?Math.round(e/a):e,unit:i};return o!==`imperial`||typeof e!=`number`||!Number.isFinite(e)?s:i===`km`?{value:r((a?e/a:e)*n),unit:`mi`}:i===`m`?{value:Math.round(e*t),unit:`ft`}:s}var a=(e,t)=>t===`imperial`?{value:r(e/1e3*n),unit:`mi`}:{value:r(e/1e3),unit:`km`},o=(e,n)=>n===`imperial`?{value:Math.round(e*t),unit:`ft`}:{value:Math.round(e),unit:`m`};export{o as i,i as n,a as r,e as t};
-//# sourceMappingURL=units-B_x9UbeC.js.map
