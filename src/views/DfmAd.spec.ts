@@ -30,4 +30,10 @@ describe.each([
     expect(divInPage).toBe(true);
     wrapper.unmount();
   });
+
+  it('keeps an ad wider than its slot inside it, not over the column next to it', () => {
+    const wrapper = mount(component);
+    expect(wrapper.get(`#${divId}`).classes()).toContain('is-clipped');
+    wrapper.unmount();
+  });
 });

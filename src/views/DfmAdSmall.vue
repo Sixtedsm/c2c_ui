@@ -1,5 +1,7 @@
 <template>
-  <div id="camptocamp_htd" class="ams-ad is-flex is-justify-content-center" />
+  <!-- clipped: the ad network picks the size of the ad from the url, not from the room left (a banner of 728 px in a
+  column of 300 px, on a page whose url is not "/"): it must not cover the column next to it -->
+  <div id="camptocamp_htd" class="ams-ad is-flex is-justify-content-center is-clipped" />
 </template>
 
 <script setup lang="ts">
